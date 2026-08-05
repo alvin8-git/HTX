@@ -1,0 +1,1045 @@
+{
+  "_comment": "Rule table for analysis/triage.py. Reviewable without touching code. Names are PFIDB-exact (the classifier's own namespace), which is why name matching is safe here: a report can only emit names from this namespace. Do NOT add colloquial names - 'Junin virus' would never match; the DB files it as 'Argentinian mammarenavirus'.",
+  "thresholds": {
+    "min_real_reads": 50,
+    "bracken_inflation_ratio": 10,
+    "enrichment_fold": 5.0,
+    "gene_breadth_confident": 80.0,
+    "gene_depth_confident": 5.0,
+    "gene_breadth_floor": 50.0,
+    "unique_fraction_floor": 0.15,
+    "unique_probe_reads": 40000
+  },
+  "threat_list": {
+    "Bacillus anthracis": {
+      "tier": "A",
+      "genome": "DNA",
+      "markers": [
+        "pXO1",
+        "pXO2"
+      ],
+      "near_neighbours": [
+        "Bacillus cereus",
+        "Bacillus thuringiensis",
+        "Bacillus mycoides"
+      ]
+    },
+    "Clostridium botulinum": {
+      "tier": "A",
+      "genome": "DNA",
+      "markers": [
+        "bont"
+      ],
+      "near_neighbours": [
+        "Clostridium baratii",
+        "Clostridium butyricum",
+        "Clostridium sporogenes"
+      ]
+    },
+    "Yersinia pestis": {
+      "tier": "A",
+      "genome": "DNA",
+      "markers": [
+        "caf1",
+        "lcrV",
+        "pla"
+      ],
+      "near_neighbours": [
+        "Yersinia pseudotuberculosis",
+        "Yersinia enterocolitica"
+      ]
+    },
+    "Francisella tularensis": {
+      "tier": "A",
+      "genome": "DNA",
+      "markers": [
+        "fopA",
+        "tul4"
+      ],
+      "near_neighbours": [
+        "Francisella philomiragia",
+        "Francisella persica"
+      ]
+    },
+    "Variola virus": {
+      "tier": "A",
+      "genome": "DNA",
+      "markers": [],
+      "near_neighbours": [
+        "Vaccinia virus",
+        "Cowpox virus",
+        "Monkeypox virus"
+      ]
+    },
+    "Zaire ebolavirus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Sudan ebolavirus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Marburg marburgvirus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Lassa mammarenavirus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Argentinian mammarenavirus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Brazilian mammarenavirus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Machupo mammarenavirus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Guanarito mammarenavirus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Chapare mammarenavirus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Lujo mammarenavirus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Crimean-Congo hemorrhagic fever orthonairovirus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Rift Valley fever phlebovirus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Yellow fever virus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Omsk hemorrhagic fever virus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Kyasanur Forest disease virus": {
+      "tier": "A",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Brucella melitensis": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [],
+      "near_neighbours": [
+        "Brucella anthropi"
+      ]
+    },
+    "Brucella abortus": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [],
+      "near_neighbours": [
+        "Brucella anthropi"
+      ]
+    },
+    "Brucella suis": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [],
+      "near_neighbours": [
+        "Brucella anthropi"
+      ]
+    },
+    "Burkholderia mallei": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [],
+      "near_neighbours": [
+        "Burkholderia pseudomallei"
+      ]
+    },
+    "Burkholderia pseudomallei": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [],
+      "near_neighbours": [
+        "Burkholderia thailandensis"
+      ]
+    },
+    "Chlamydia psittaci": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Coxiella burnetii": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Rickettsia prowazekii": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [],
+      "near_neighbours": [
+        "Rickettsia typhi"
+      ]
+    },
+    "Clostridium perfringens": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [
+        "etx"
+      ],
+      "near_neighbours": []
+    },
+    "Staphylococcus aureus": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [
+        "seb"
+      ],
+      "near_neighbours": [
+        "Staphylococcus argenteus"
+      ]
+    },
+    "Vibrio cholerae": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [
+        "ctxA",
+        "ctxB"
+      ],
+      "near_neighbours": []
+    },
+    "Cryptosporidium parvum": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [],
+      "near_neighbours": [
+        "Cryptosporidium hominis"
+      ]
+    },
+    "Salmonella enterica": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [],
+      "near_neighbours": [
+        "Salmonella bongori"
+      ],
+      "subspecies_required": "serovar (Typhi / Paratyphi / Typhimurium) - PFIDB carries no serovar rank (1 of 27,827 entries has subsp./serovar/str.), so a laboratory strain and a notifiable one are indistinguishable here"
+    },
+    "Shigella dysenteriae": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [
+        "stx1",
+        "stx2"
+      ],
+      "near_neighbours": [
+        "Escherichia coli"
+      ]
+    },
+    "Escherichia coli": {
+      "tier": "B",
+      "genome": "DNA",
+      "markers": [
+        "stx1",
+        "stx2",
+        "eae"
+      ],
+      "near_neighbours": [
+        "Escherichia albertii",
+        "Shigella flexneri"
+      ]
+    },
+    "Venezuelan equine encephalitis virus": {
+      "tier": "B",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Eastern equine encephalitis virus": {
+      "tier": "B",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Western equine encephalitis virus": {
+      "tier": "B",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Nipah henipavirus": {
+      "tier": "C",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Hendra henipavirus": {
+      "tier": "C",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Severe acute respiratory syndrome-related coronavirus": {
+      "tier": "C",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Middle East respiratory syndrome-related coronavirus": {
+      "tier": "C",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Influenza A virus": {
+      "tier": "C",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Tick-borne encephalitis virus": {
+      "tier": "C",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Chikungunya virus": {
+      "tier": "C",
+      "genome": "RNA",
+      "markers": [],
+      "near_neighbours": []
+    },
+    "Mycobacterium tuberculosis": {
+      "tier": "C",
+      "genome": "DNA",
+      "markers": [],
+      "near_neighbours": [
+        "Mycobacterium bovis"
+      ]
+    }
+  },
+  "_taxonomy_notes_comment": "Species whose name misleads. Emitted alongside any call.",
+  "taxonomy_notes": {
+    "Brucella anthropi": "Formerly Ochrobactrum anthropi, moved into Brucella in 2020. Ubiquitous reagent contaminant, NOT zoonotic brucellosis. Not a CDC agent.",
+    "Bacillus cereus": "B. anthracis near-neighbour. Chromosome is ~99% identical; only pXO1/pXO2 separate them.",
+    "Staphylococcus argenteus": "Formerly part of S. aureus. Cross-maps with S. aureus reads."
+  },
+  "_kitome_comment": "Seed list of reagent/kit contaminant genera (Salter 2014, Eisenhofer 2019). The computed cross-sample enrichment test is the primary filter; this list only lowers confidence further.",
+  "kitome_genera": [
+    "Ralstonia",
+    "Bradyrhizobium",
+    "Sphingomonas",
+    "Methylobacterium",
+    "Delftia",
+    "Herbaspirillum",
+    "Variovorax",
+    "Afipia",
+    "Novosphingobium",
+    "Stenotrophomonas",
+    "Pelomonas",
+    "Comamonas",
+    "Cupriavidus",
+    "Massilia",
+    "Janthinobacterium",
+    "Brevundimonas",
+    "Caulobacter",
+    "Mesorhizobium",
+    "Phyllobacterium",
+    "Rhizobium"
+  ],
+  "_amr_comment": "MEGARes Group -> how to read it. class: acquired | intrinsic | core_essential | regulator | point_mutation | rrna_conserved | efflux_ubiquitous. Only 'acquired' can raise a tier on its own.",
+  "amr_classes": {
+    "MECA": {
+      "class": "acquired",
+      "note": "Methicillin resistance. Needs a host organism to be meaningful; requires mecR1/mecI context and culture confirmation."
+    },
+    "CTX": {
+      "class": "acquired",
+      "note": "CTX-M extended-spectrum beta-lactamase. Genuinely acquired, plasmid-borne."
+    },
+    "BLAZ": {
+      "class": "acquired",
+      "note": "Staphylococcal penicillinase. Near-universal in staphylococci since the 1950s; expected background, not a finding."
+    },
+    "ERMX": {
+      "class": "acquired",
+      "note": "23S rRNA methyltransferase, macrolide resistance."
+    },
+    "ERMC": {
+      "class": "acquired",
+      "note": "23S rRNA methyltransferase, macrolide resistance."
+    },
+    "MSRA": {
+      "class": "acquired",
+      "note": "Macrolide ABC efflux, staphylococcal plasmid-borne."
+    },
+    "MPHC": {
+      "class": "acquired",
+      "note": "Macrolide phosphotransferase."
+    },
+    "LNUA": {
+      "class": "acquired",
+      "note": "Lincosamide nucleotidyltransferase."
+    },
+    "FUSB": {
+      "class": "acquired",
+      "note": "Fusidic acid resistance, plasmid-borne."
+    },
+    "TETK": {
+      "class": "acquired",
+      "note": "Tetracycline MFS efflux, plasmid-borne in staphylococci."
+    },
+    "APH3-DPRIME": {
+      "class": "acquired",
+      "note": "Aminoglycoside phosphotransferase."
+    },
+    "APH2-DPRIME": {
+      "class": "acquired",
+      "note": "Aminoglycoside phosphotransferase."
+    },
+    "ANT4-PRIME": {
+      "class": "acquired",
+      "note": "Aminoglycoside nucleotidyltransferase."
+    },
+    "SAT": {
+      "class": "acquired",
+      "note": "Streptothricin acetyltransferase."
+    },
+    "FOSA": {
+      "class": "acquired",
+      "note": "Fosfomycin thiol transferase; intrinsic in many Gram-negatives."
+    },
+    "FOLP": {
+      "class": "point_mutation",
+      "note": "Sulfonamide resistance requires specific dihydropteroate synthase substitutions."
+    },
+    "BLE": {
+      "class": "acquired",
+      "note": "Bleomycin resistance protein."
+    },
+    "ICR": {
+      "class": "acquired",
+      "note": "Colistin phosphoethanolamine transferase (mcr-like). Verify allele before reporting."
+    },
+    "ADEJ": {
+      "class": "intrinsic",
+      "note": "AdeIJK RND efflux pump. Chromosomal and present in essentially every A. baumannii. Resistance requires OVEREXPRESSION (adeN repressor mutation), which DNA presence cannot measure."
+    },
+    "ADEI": {
+      "class": "intrinsic",
+      "note": "AdeIJK component. Intrinsic, as ADEJ."
+    },
+    "ADEK": {
+      "class": "intrinsic",
+      "note": "AdeIJK component. Intrinsic, as ADEJ."
+    },
+    "LPXA": {
+      "class": "core_essential",
+      "note": "First Raetz enzyme of lipid A biosynthesis. A core essential gene in every Gram-negative; presence is the default state, not a resistance signal. Colistin resistance needs a LOSS-OF-FUNCTION variant, which needs depth to call."
+    },
+    "LPXC": {
+      "class": "core_essential",
+      "note": "As LPXA."
+    },
+    "LPXD": {
+      "class": "core_essential",
+      "note": "As LPXA."
+    },
+    "MECI": {
+      "class": "regulator",
+      "note": "Repressor of mecA. Meaningless without mecA - its only function is to switch mecA off. Homologous to blaI and filed under the same MEGARes mechanism, so it cross-maps from a bla operon.",
+      "requires": "MECA"
+    },
+    "BLAI": {
+      "class": "regulator",
+      "note": "Repressor of blaZ.",
+      "requires": "BLAZ"
+    },
+    "BLAR": {
+      "class": "regulator",
+      "note": "blaR1 sensor-transducer of the bla operon.",
+      "requires": "BLAZ"
+    },
+    "GYRA": {
+      "class": "point_mutation",
+      "note": "Fluoroquinolone resistance requires QRDR substitutions. Gene presence is universal - every bacterium has gyrA."
+    },
+    "PARC": {
+      "class": "point_mutation",
+      "note": "As GYRA - topoisomerase IV is universal."
+    },
+    "PARE": {
+      "class": "point_mutation",
+      "note": "As GYRA."
+    },
+    "RPOB": {
+      "class": "point_mutation",
+      "note": "Rifampicin resistance requires RRDR substitutions. rpoB is universal and essential."
+    },
+    "FUSA": {
+      "class": "point_mutation",
+      "note": "Fusidic acid resistance requires EF-G substitutions. fusA is universal and essential."
+    },
+    "TUFAB": {
+      "class": "point_mutation",
+      "note": "EF-Tu is universal and essential."
+    },
+    "A16S": {
+      "class": "rrna_conserved",
+      "note": "16S rRNA is present in every bacterium and highly conserved, so reads from the whole community pile onto it. Not a resistance call."
+    },
+    "RRSA": {
+      "class": "rrna_conserved",
+      "note": "As A16S."
+    },
+    "CAP16S": {
+      "class": "rrna_conserved",
+      "note": "As A16S."
+    },
+    "TET16S": {
+      "class": "rrna_conserved",
+      "note": "As A16S."
+    },
+    "MLS23S": {
+      "class": "rrna_conserved",
+      "note": "23S rRNA is universal and conserved. Not a resistance call without variant evidence."
+    },
+    "O23S": {
+      "class": "rrna_conserved",
+      "note": "As MLS23S."
+    },
+    "RLMA": {
+      "class": "rrna_conserved",
+      "note": "Housekeeping 23S methyltransferase."
+    },
+    "NORA": {
+      "class": "efflux_ubiquitous",
+      "note": "Chromosomal MFS efflux, ubiquitous in staphylococci. Expression-dependent."
+    },
+    "NORMD": {
+      "class": "efflux_ubiquitous",
+      "note": "Chromosomal MATE efflux. Expression-dependent."
+    },
+    "PDRM": {
+      "class": "efflux_ubiquitous",
+      "note": "Chromosomal MATE efflux. Expression-dependent."
+    },
+    "PATA": {
+      "class": "efflux_ubiquitous",
+      "note": "Chromosomal ABC efflux. Expression-dependent."
+    },
+    "PATB": {
+      "class": "efflux_ubiquitous",
+      "note": "Chromosomal ABC efflux. Expression-dependent."
+    },
+    "MEFA": {
+      "class": "efflux_ubiquitous",
+      "note": "MFS efflux, common."
+    },
+    "MSRD": {
+      "class": "efflux_ubiquitous",
+      "note": "ABC efflux, common."
+    },
+    "QACAB": {
+      "class": "efflux_ubiquitous",
+      "note": "Biocide efflux. Relevant to disinfectant tolerance, not antibiotic therapy."
+    },
+    "QACR": {
+      "class": "efflux_ubiquitous",
+      "note": "Regulator of qac efflux."
+    },
+    "QACL": {
+      "class": "efflux_ubiquitous",
+      "note": "Biocide efflux."
+    },
+    "QACJ": {
+      "class": "efflux_ubiquitous",
+      "note": "Biocide efflux."
+    },
+    "QACC": {
+      "class": "efflux_ubiquitous",
+      "note": "Biocide efflux."
+    },
+    "MGRA": {
+      "class": "regulator",
+      "note": "Global staphylococcal regulator, not a resistance determinant by itself."
+    },
+    "CADD": {
+      "class": "environmental",
+      "note": "Metal resistance, environmental. Not clinically actionable."
+    },
+    "CADX": {
+      "class": "environmental",
+      "note": "Metal resistance regulator."
+    },
+    "MCO": {
+      "class": "environmental",
+      "note": "Multi-copper oxidase, metal resistance."
+    },
+    "NCRYN": {
+      "class": "environmental",
+      "note": "Nickel efflux regulator, environmental."
+    },
+    "ARSRM": {
+      "class": "environmental",
+      "note": "Arsenic resistance regulator, environmental."
+    },
+    "COPB": {
+      "class": "environmental",
+      "note": "Copper resistance protein. Environmental//metal tolerance, not an antibiotic determinant."
+    },
+    "COPC": {
+      "class": "environmental",
+      "note": "Copper resistance protein. Environmental."
+    },
+    "COPG": {
+      "class": "environmental",
+      "note": "Copper resistance protein. Environmental."
+    },
+    "PCOC": {
+      "class": "environmental",
+      "note": "Plasmid-borne copper resistance. Environmental, but plasmid-borne - note co-selection potential."
+    },
+    "TCRA": {
+      "class": "environmental",
+      "note": "Copper resistance protein. Environmental."
+    },
+    "MERT": {
+      "class": "environmental",
+      "note": "Mercury transport protein (mer operon). Environmental. mer operons ride on Tn21-family transposons that also carry class 1 integrons, so presence hints at mobile-element load."
+    },
+    "MERP": {
+      "class": "environmental",
+      "note": "Periplasmic mercury binding protein (mer operon). Environmental; see MERT on co-selection."
+    },
+    "MERE": {
+      "class": "environmental",
+      "note": "mer operon protein. Environmental."
+    },
+    "MERD": {
+      "class": "environmental",
+      "note": "mer operon co-regulator. Environmental."
+    },
+    "MERR": {
+      "class": "environmental",
+      "note": "MerR regulator. Environmental."
+    },
+    "ARSBM": {
+      "class": "environmental",
+      "note": "Arsenic resistance. Environmental; widespread chromosomal."
+    },
+    "CADC": {
+      "class": "environmental",
+      "note": "Cadmium resistance regulator. Environmental; common on staphylococcal plasmids."
+    },
+    "SILP": {
+      "class": "environmental",
+      "note": "Silver RND efflux. Environmental/biocide. Relevant to silver-impregnated surfaces, not to therapy."
+    },
+    "SILS": {
+      "class": "environmental",
+      "note": "Silver efflux sensor kinase. Environmental/biocide."
+    },
+    "EEFX": {
+      "class": "environmental",
+      "note": "Acid resistance protein. Stress tolerance, not an antimicrobial resistance determinant."
+    },
+    "SODB": {
+      "class": "core_essential",
+      "note": "Superoxide dismutase. Housekeeping oxidative-stress enzyme present in nearly all bacteria; presence is the default state."
+    },
+    "QACG": {
+      "class": "environmental",
+      "note": "qacG SMR biocide efflux, staphylococcal plasmid-borne. Disinfectant tolerance, not antibiotic resistance."
+    },
+    "AAC6-PRIME": {
+      "class": "acquired",
+      "note": "aac(6') aminoglycoside acetyltransferase. Acquired in most organisms, BUT aac(6')-Ig/-Im are chromosomal and intrinsic in several Acinetobacter species - check the host before reporting."
+    },
+    "ANT3-DPRIME": {
+      "class": "acquired",
+      "note": "ant(3'')-Ia / aadA streptomycin-spectinomycin adenylyltransferase. Classic class 1 integron gene cassette - its presence with QACEDELTA1 indicates an integron."
+    },
+    "APH6": {
+      "class": "acquired",
+      "note": "aph(6)-Id / strB streptomycin phosphotransferase. Transposon-borne, usually paired with aph(3'')-Ib."
+    },
+    "ERM": {
+      "class": "acquired",
+      "note": "erm 23S rRNA methyltransferase - macrolide/lincosamide/streptogramin B resistance."
+    },
+    "ERMB": {
+      "class": "acquired",
+      "note": "erm(B) methyltransferase. Very common, Tn917/Tn1545-borne."
+    },
+    "ERMF": {
+      "class": "acquired",
+      "note": "erm(F) methyltransferase. Anaerobe-associated (Bacteroides/Prevotella), CTn-borne."
+    },
+    "LNUC": {
+      "class": "acquired",
+      "note": "lnu(C) lincosamide nucleotidyltransferase. Transposon-borne."
+    },
+    "VGA": {
+      "class": "acquired",
+      "note": "vga ABC-F protein - streptogramin A, lincosamide and pleuromutilin resistance. Plasmid-borne in staphylococci."
+    },
+    "MUPA": {
+      "class": "acquired",
+      "note": "mupA - a second, plasmid-borne isoleucyl-tRNA synthetase conferring HIGH-LEVEL mupirocin resistance. Clinically important: mupirocin is the standard nasal decolonisation agent for MRSA carriage, so mupA predicts decolonisation failure."
+    },
+    "CATA": {
+      "class": "acquired",
+      "note": "Chloramphenicol acetyltransferase. Plasmid/transposon-borne."
+    },
+    "CMX": {
+      "class": "acquired",
+      "note": "cmx phenicol MFS efflux. Common in Corynebacterium and other actinobacteria, often on mobile elements."
+    },
+    "SULII": {
+      "class": "acquired",
+      "note": "sul2 sulfonamide-resistant dihydropteroate synthase. Plasmid-borne; sul genes are among the most reliable acquired-resistance markers."
+    },
+    "DFRC": {
+      "class": "acquired",
+      "note": "dfrC trimethoprim-resistant dihydrofolate reductase. Staphylococcal, plasmid-borne."
+    },
+    "TETA": {
+      "class": "acquired",
+      "note": "tet(A) tetracycline MFS efflux. Tn1721/plasmid-borne."
+    },
+    "TET39": {
+      "class": "acquired",
+      "note": "tet(39) tetracycline MFS efflux. Plasmid-borne, characteristic of Acinetobacter."
+    },
+    "TETA46": {
+      "class": "acquired",
+      "note": "tet(46) tetracycline ABC efflux. Acquired."
+    },
+    "TETL": {
+      "class": "acquired",
+      "note": "tet(L) tetracycline MFS efflux. Plasmid-borne in Gram-positives."
+    },
+    "BLAA": {
+      "class": "acquired",
+      "note": "Class A beta-lactamase. Acquired; identify the specific family before reporting a spectrum."
+    },
+    "BLASGM": {
+      "class": "acquired",
+      "note": "SGM-family class A beta-lactamase. Acquired."
+    },
+    "CARB": {
+      "class": "acquired",
+      "note": "CARB/PSE-family carbenicillin-hydrolysing class A beta-lactamase. Acquired."
+    },
+    "QACEDELTA1": {
+      "class": "acquired",
+      "note": "qacE-delta-1 - a TRUNCATED biocide efflux gene that forms the 3'-conserved segment of CLASS 1 INTEGRONS. Its real value is as an integron marker: where it appears, expect co-mobilised resistance cassettes (see ANT3-DPRIME, SULII)."
+    },
+    "RPOCL": {
+      "class": "point_mutation",
+      "note": "Daptomycin resistance requires rpoC substitutions. rpoC is universal and essential; presence means nothing on its own."
+    },
+    "FABI": {
+      "class": "point_mutation",
+      "note": "Enoyl-ACP reductase - the triclosan target. Essential fatty-acid synthesis gene present in nearly all bacteria; resistance requires substitutions, not presence."
+    },
+    "ABAF": {
+      "class": "intrinsic",
+      "note": "AbaF fosfomycin MFS efflux. Chromosomal and intrinsic in Acinetobacter baumannii."
+    },
+    "ABAQ": {
+      "class": "intrinsic",
+      "note": "AbaQ MFS efflux. Chromosomal and intrinsic in A. baumannii."
+    },
+    "ABUO": {
+      "class": "intrinsic",
+      "note": "AbuO multi-biocide RND efflux. Chromosomal and intrinsic in A. baumannii."
+    },
+    "AMVA": {
+      "class": "intrinsic",
+      "note": "AmvA MFS efflux. Chromosomal and intrinsic in A. baumannii."
+    },
+    "FOSB": {
+      "class": "intrinsic",
+      "note": "fosB fosfomycin thiol transferase. Chromosomal and intrinsic in staphylococci and Bacillus."
+    },
+    "ADEG": {
+      "class": "intrinsic",
+      "note": "AdeFGH RND efflux pump component. Chromosomal in A. baumannii; resistance requires OVEREXPRESSION, not presence."
+    },
+    "ADEH": {
+      "class": "intrinsic",
+      "note": "AdeFGH RND efflux pump component. Chromosomal in A. baumannii; see ADEG."
+    },
+    "ADET1": {
+      "class": "intrinsic",
+      "note": "AdeT RND efflux pump component. Chromosomal in A. baumannii."
+    },
+    "ADET2": {
+      "class": "intrinsic",
+      "note": "AdeT RND efflux pump component. Chromosomal in A. baumannii."
+    },
+    "MEXE": {
+      "class": "intrinsic",
+      "note": "MexEF-OprN RND efflux component. Chromosomal in Pseudomonas; expression-dependent."
+    },
+    "TETR": {
+      "class": "regulator",
+      "note": "TetR repressor of tet(A). Without tet(A) in the same sample there is nothing for it to regulate.",
+      "requires": "TETA"
+    },
+    "ADEN": {
+      "class": "regulator",
+      "note": "AdeN, TetR-family repressor of the AdeIJK efflux pump. THIS IS THE GENE THAT MATTERS: AdeIJK presence is intrinsic and uninformative, but LOSS-OF-FUNCTION in adeN de-represses AdeIJK and IS the resistance mechanism. Presence at good breadth and depth does not prove overexpression - it identifies the target for variant calling, which needs deeper coverage than this assay provides.",
+      "requires": "ADEJ",
+      "actionable_when_partner": true
+    },
+    "ADEL": {
+      "class": "regulator",
+      "note": "AdeL, LysR-family regulator of AdeFGH. Loss-of-function de-represses AdeFGH and causes the resistance; presence alone does not.",
+      "requires": "ADEG",
+      "actionable_when_partner": true
+    },
+    "ADES": {
+      "class": "regulator",
+      "note": "AdeS sensor kinase of the AdeRS two-component system regulating AdeABC. Gain-of-function substitutions drive AdeABC overexpression; presence alone does not.",
+      "actionable_when_partner": true
+    },
+    "MEXT": {
+      "class": "regulator",
+      "note": "MexT, LysR-family activator of MexEF-OprN. Variant alleles drive overexpression; presence alone does not.",
+      "requires": "MEXE",
+      "actionable_when_partner": true
+    },
+    "RLMH": {
+      "class": "core_essential",
+      "note": "RlmH is a housekeeping 23S rRNA methyltransferase (m3-pseudouridine, helix 89), not a resistance methylase. MEGARes files it under the same mechanism string as erm, which is why the mechanism map alone gets it wrong."
+    },
+    "FOSX": {
+      "class": "intrinsic",
+      "note": "fosX is chromosomal and intrinsic in Listeria monocytogenes and several other Gram-positives; presence is the default state for those hosts."
+    },
+    "CRPP": {
+      "class": "intrinsic",
+      "note": "crpP is chromosomal in Pseudomonas aeruginosa; plasmid-borne variants exist but chromosomal is the default."
+    }
+  },
+  "_marker_comment": "Virulence/plasmid markers searched in the VFDB table. Absence downgrades the parent agent.",
+  "marker_patterns": {
+    "pXO1": "(pag|lef|cya|pXO1)",
+    "pXO2": "(cap[ABCDE]|acpA|pXO2)",
+    "bont": "(bont|botulinum neurotoxin|ntnh)",
+    "caf1": "caf1",
+    "lcrV": "lcrV",
+    "pla": "\\bpla\\b",
+    "fopA": "fopA",
+    "tul4": "(tul4|lpnA)",
+    "etx": "(etx|epsilon toxin)",
+    "seb": "\\bseb\\b",
+    "ctxA": "ctxA",
+    "ctxB": "ctxB",
+    "stx1": "stx1",
+    "stx2": "stx2",
+    "eae": "\\beae\\b"
+  },
+  "class_thresholds": {
+    "_comment": "Per-class gene thresholds. breadth/depth = full-length route. partial_breadth/partial_depth = fragment route, requires higher depth. A group entry in group_thresholds overrides its class.",
+    "acquired": {
+      "breadth": 80.0,
+      "depth": 5.0,
+      "partial_breadth": 55.0,
+      "partial_depth": 10.0
+    },
+    "regulator": {
+      "breadth": 80.0,
+      "depth": 5.0
+    },
+    "_default": {
+      "breadth": 80.0,
+      "depth": 5.0
+    }
+  },
+  "group_thresholds": {
+    "_comment": "Overrides for groups where the class default is wrong. Each entry states WHY, so the threshold can be argued with rather than merely obeyed.",
+    "CTX": {
+      "breadth": 80.0,
+      "depth": 5.0,
+      "partial_breadth": 55.0,
+      "partial_depth": 8.0,
+      "why": "CTX-M is an ESBL - a clinically decisive acquired gene, and the CTX-M family is diverse enough that reads from one allele cover a reference allele partially. Missing a real ESBL costs more than over-calling one, so the fragment route is relaxed to 8x. Report as partial: the family is established, the allele is not."
+    },
+    "MECA": {
+      "breadth": 80.0,
+      "depth": 5.0,
+      "partial_breadth": 55.0,
+      "partial_depth": 8.0,
+      "why": "Same argument as CTX: methicillin resistance is decisive, and a partial mecA still warrants culture."
+    },
+    "BLAZ": {
+      "breadth": 85.0,
+      "depth": 8.0,
+      "partial_breadth": 999.0,
+      "partial_depth": 999.0,
+      "why": "Staphylococcal penicillinase is near-universal background. Raised, and the fragment route disabled, so it does not crowd out real findings."
+    }
+  },
+  "mechanism_classes": {
+    "_comment": "Fallback classification by MEGARes (Type, Mechanism), keyed 'Type|Mechanism'. Resolution order is group override -> this map -> keyword fallback in code. 115 entries cover 397 distinct groups, and generalise to groups never seen.",
+    "Biocides|Acetate resistance protein": "environmental",
+    "Biocides|Acid resistance protein": "environmental",
+    "Biocides|Acid resistance regulator": "environmental",
+    "Biocides|Multi-biocide MATE efflux pump": "environmental",
+    "Biocides|Multi-biocide MFS efflux pump": "environmental",
+    "Biocides|Multi-biocide RND efflux pump": "environmental",
+    "Biocides|Multi-biocide SMR efflux pump": "environmental",
+    "Biocides|Multi-biocide resistance protein": "environmental",
+    "Biocides|Multi-biocide resistance regulator": "environmental",
+    "Biocides|Paraquat efflux pump": "environmental",
+    "Biocides|Paraquat resistance protein": "environmental",
+    "Biocides|Peroxide resistance stress protein": "environmental",
+    "Biocides|Phenolic RND efflux pump": "environmental",
+    "Biocides|Phenolic resistance protein": "environmental",
+    "Biocides|QAC efflux pump": "environmental",
+    "Biocides|Triclosan-resistant mutation": "point_mutation",
+    "Biocides|peroxide resistance protein": "environmental",
+    "Biocides|peroxide resistance regulator": "environmental",
+    "Drugs|23S rRNA methyltransferases": "acquired",
+    "Drugs|Aminocoumarin-resistant DNA topoisomerases": "point_mutation",
+    "Drugs|Aminoglycoside N-acetyltransferases": "acquired",
+    "Drugs|Aminoglycoside O-nucleotidyltransferases": "acquired",
+    "Drugs|Aminoglycoside O-phosphotransferases": "acquired",
+    "Drugs|Aminoglycoside efflux pumps": "efflux_ubiquitous",
+    "Drugs|Aminoglycoside-resistant 16S ribosomal subunit protein": "rrna_conserved",
+    "Drugs|Bleomycin resistance protein": "acquired",
+    "Drugs|Cationic peptide-resistant 16S ribosomal subunit protein": "rrna_conserved",
+    "Drugs|Chloramphenicol acetyltransferases": "acquired",
+    "Drugs|Class A betalactamases": "acquired",
+    "Drugs|Class C betalactamases": "intrinsic",
+    "Drugs|Class D betalactamases": "acquired",
+    "Drugs|Colistin phosphoethanolamine transferase": "acquired",
+    "Drugs|Colistin-resistant mutant": "point_mutation",
+    "Drugs|Daptomycin-resistant beta-subunit of RNA polymerase RpoB": "point_mutation",
+    "Drugs|Daptomycin-resistant beta-subunit of RNA polymerase RpoC": "point_mutation",
+    "Drugs|Daptomycin-resistant mutant": "point_mutation",
+    "Drugs|Defensin-resistant mprF": "point_mutation",
+    "Drugs|Defensin-resistant mutant": "point_mutation",
+    "Drugs|Dihydrofolate reductase": "acquired",
+    "Drugs|EF-Tu inhibition": "point_mutation",
+    "Drugs|Fluoroquinolone ABC efflux pump": "efflux_ubiquitous",
+    "Drugs|Fluoroquinolone resistance phosphotransferase": "acquired",
+    "Drugs|Fluoroquinolone-resistant DNA topoisomerases": "point_mutation",
+    "Drugs|Fosfomycin MFS efflux pump": "efflux_ubiquitous",
+    "Drugs|Fosfomycin target mutation": "point_mutation",
+    "Drugs|Fosfomycin thiol transferases": "acquired",
+    "Drugs|Fusidic acid-resistant mutation": "point_mutation",
+    "Drugs|Lincosamide nucleotidyltransferases": "acquired",
+    "Drugs|Lipid A modification": "intrinsic",
+    "Drugs|Lysocin-resistant mutant": "point_mutation",
+    "Drugs|MDR mutant porin proteins": "point_mutation",
+    "Drugs|MDR regulator": "regulator",
+    "Drugs|MLS resistance ABC efflux pumps": "efflux_ubiquitous",
+    "Drugs|MLS resistance MFS efflux pumps": "efflux_ubiquitous",
+    "Drugs|Macrolide phosphotransferases": "acquired",
+    "Drugs|Macrolide-resistant 23S rRNA mutation": "rrna_conserved",
+    "Drugs|Multi-drug ABC efflux pumps": "efflux_ubiquitous",
+    "Drugs|Multi-drug MATE efflux pump": "efflux_ubiquitous",
+    "Drugs|Multi-drug MFS efflux pumps": "efflux_ubiquitous",
+    "Drugs|Multi-drug RND efflux pumps": "efflux_ubiquitous",
+    "Drugs|Multi-drug RND efflux regulator": "regulator",
+    "Drugs|Multi-drug SMR efflux regulator": "regulator",
+    "Drugs|Mupirocin-resistant isoleucyl-tRNA synthetase": "point_mutation",
+    "Drugs|Mutant porin proteins": "point_mutation",
+    "Drugs|Oxazolidinone-resistant 23S rRNA mutation": "rrna_conserved",
+    "Drugs|Penicillin binding protein": "point_mutation",
+    "Drugs|Penicillin binding protein regulator": "regulator",
+    "Drugs|Phenicol resistance MFS efflux pumps": "efflux_ubiquitous",
+    "Drugs|Polymyxin B resistance regulator": "regulator",
+    "Drugs|Ribosomal zinc-binding protein": "point_mutation",
+    "Drugs|Rifampin-resistant beta-subunit of RNA polymerase RpoB": "point_mutation",
+    "Drugs|Streptothricin acetyltransferase": "acquired",
+    "Drugs|Sulfonamide-resistant dihydropteroate synthases": "acquired",
+    "Drugs|Tetracycline resistance ABC efflux pumps": "efflux_ubiquitous",
+    "Drugs|Tetracycline resistance MFS efflux pumps": "efflux_ubiquitous",
+    "Drugs|Tetracycline resistance MFS efflux regulator": "regulator",
+    "Drugs|Tetracycline transcriptional repressor": "regulator",
+    "Drugs|Tetracycline-resistant 16S ribosomal subunit protein": "rrna_conserved",
+    "Drugs|Undecaprenyl pyrophosphate phosphatase": "intrinsic",
+    "Metals|Arsenic resistance protein": "environmental",
+    "Metals|Chromium resistance protein": "environmental",
+    "Metals|Copper resistance protein": "environmental",
+    "Metals|Copper resistance regulator": "environmental",
+    "Metals|Gold resistance regulator": "environmental",
+    "Metals|Mercury resistance protein": "environmental",
+    "Metals|Mercury resistance regulator": "environmental",
+    "Metals|Multi-metal ABC efflux pumps": "environmental",
+    "Metals|Multi-metal RND efflux pumps": "environmental",
+    "Metals|Multi-metal RND efflux regulator": "environmental",
+    "Metals|Multi-metal resistance protein": "environmental",
+    "Metals|Multi-metal resistance regulator": "environmental",
+    "Metals|Nickel ABC efflux pumps": "environmental",
+    "Metals|Nickel ABC efflux regulator": "environmental",
+    "Metals|Nickel MFS efflux regulator": "environmental",
+    "Metals|Sodium resistance protein": "environmental",
+    "Metals|Tellurium resistance protein": "environmental",
+    "Metals|Zinc resistance protein": "environmental",
+    "Metals|Zinc resistance regulator": "environmental",
+    "Multi-compound|Biocide and metal ABC efflux pumps": "environmental",
+    "Multi-compound|Biocide and metal resistance protein": "environmental",
+    "Multi-compound|Drug and biocide ABC efflux pumps": "efflux_ubiquitous",
+    "Multi-compound|Drug and biocide ABC efflux regulator": "regulator",
+    "Multi-compound|Drug and biocide MATE efflux pumps": "efflux_ubiquitous",
+    "Multi-compound|Drug and biocide MATE efflux regulator": "regulator",
+    "Multi-compound|Drug and biocide MFS efflux pumps": "efflux_ubiquitous",
+    "Multi-compound|Drug and biocide MFS efflux regulator": "regulator",
+    "Multi-compound|Drug and biocide RND efflux pumps": "efflux_ubiquitous",
+    "Multi-compound|Drug and biocide RND efflux regulator": "regulator",
+    "Multi-compound|Drug and biocide SMR efflux pumps": "efflux_ubiquitous",
+    "Multi-compound|Drug and biocide and metal MFS efflux pumps": "efflux_ubiquitous",
+    "Multi-compound|Drug and biocide and metal RND efflux pumps": "efflux_ubiquitous",
+    "Multi-compound|Drug and biocide and metal RND efflux regulator": "regulator",
+    "Multi-compound|Drug and biocide and metal SMR efflux pump": "efflux_ubiquitous",
+    "Multi-compound|Drug and biocide and metal resistance regulator": "regulator",
+    "Multi-compound|Drug and metal MFS efflux pumps": "efflux_ubiquitous"
+  }
+}
