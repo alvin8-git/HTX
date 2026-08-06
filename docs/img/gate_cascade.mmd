@@ -1,0 +1,37 @@
+flowchart TB
+    S(["PFI report"]) --> G12["<b>12</b> · integrity"]
+    subgraph TAXON["TAXON PATH"]
+        direction TB
+        subgraph TA[" "]
+            direction LR
+            a11["<b>11</b> · taxonomy"] --> a7["<b>7</b> · inflation"] --> a2["<b>2</b> · detectability"] --> a1["<b>1</b> · read floor"]
+        end
+        subgraph TB2[" "]
+            direction LR
+            a6["<b>6</b> · amplification"] --> a8["<b>8</b> · enrichment"] --> a9["<b>9</b> · near neighbour"]
+        end
+        subgraph TC[" "]
+            direction LR
+            a10a["<b>10a</b> · marker<br/><i>two-way</i>"] --> acap["· subspecies cap"] --> a10b["<b>10b</b> · marker<br/><i>one-way</i>"]
+        end
+        TA --> TB2 --> TC
+    end
+    subgraph GENE["GENE PATH"]
+        direction LR
+        g3["<b>3</b> · allele collapse"] --> g4["<b>4</b> · breadth floor"] --> g5["<b>5</b> · class"] --> g4b["<b>4b</b> · two-route call"]
+    end
+    G12 --> GENE
+    GENE ~~~ TAXON
+    G12 --> TAXON
+    GENE --> RU["<b>SAMPLE VERDICT ROLL-UP</b>"]
+    TAXON --> RU
+    RU --> V(["NO ACTION / MONITOR /<br/>INVESTIGATE / ESCALATE"])
+    classDef gate fill:#e8e4f3,stroke:#5b4b8a,color:#241a3d
+    classDef term fill:#dff0d8,stroke:#3c763d,color:#1b3a1f
+    class a11,a7,a2,a1,a6,a8,a9,a10a,acap,a10b,g3,g4,g5,g4b,G12 gate
+    class RU,V term
+    style TAXON fill:#fbfaff,stroke:#bbbbbb
+    style GENE fill:#fbfaff,stroke:#bbbbbb
+    style TA fill:#ffffff,stroke:none
+    style TB2 fill:#ffffff,stroke:none
+    style TC fill:#ffffff,stroke:none

@@ -1,0 +1,39 @@
+flowchart TB
+    subgraph IN["INPUT — one HTML file per sample"]
+        direction LR
+        R["&lt;sample&gt;_en.html<br/>PFI report<br/><i>embedded globalData</i>"]
+        F["optional: FASTQ<br/><i>two gates</i>"]
+        R ~~~ F
+    end
+    subgraph ENG["ENGINE — analysis/triage.py, stdlib only"]
+        direction LR
+        G0["gate 12<br/>input integrity"] --> GG["gene gates<br/>3 · 4 · 5 · two-route"] --> GT["taxon gates<br/>2 · 1 · 7 · 6 · 8<br/>9 · 11 · 10a · 10b"] --> RU["sample verdict<br/>roll-up"]
+    end
+    subgraph RULES["KNOWLEDGE — analysis/triage_rules.json, no code"]
+        direction LR
+        K1["threat_list<br/>46 CDC"]
+        K2["clinical_watchlist<br/>24 WHO / ESKAPE"]
+        K3["amr_classes<br/>mechanism_classes"]
+        K4["marker_patterns<br/>kitome · thresholds"]
+        K1 ~~~ K2 ~~~ K3 ~~~ K4
+    end
+    subgraph OUT["OUTPUT"]
+        direction LR
+        O1["triage_&lt;sample&gt;.tsv<br/><i>every row + reason</i>"]
+        O2["stdout summary"]
+        O3["triage_report.html<br/><i>evidence report</i>"]
+        O1 ~~~ O2 ~~~ O3
+    end
+    IN --> ENG
+    RULES -.->|"read at run time"| ENG
+    ENG --> OUT
+    classDef io fill:#e8e4f3,stroke:#5b4b8a,color:#241a3d
+    classDef eng fill:#dff0d8,stroke:#3c763d,color:#1b3a1f
+    classDef kn fill:#fcf3cf,stroke:#b7950b,color:#4d3f04
+    class R,F,O1,O2,O3 io
+    class G0,GG,GT,RU eng
+    class K1,K2,K3,K4 kn
+    style IN fill:#ffffff,stroke:#bbbbbb
+    style ENG fill:#ffffff,stroke:#bbbbbb
+    style OUT fill:#ffffff,stroke:#bbbbbb
+    style RULES fill:#ffffff,stroke:#bbbbbb

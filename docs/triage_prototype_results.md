@@ -139,6 +139,37 @@ sample — WBM156's 57 are one oral-flora community on a tap, not 57 findings. O
 at 8 and reports the remainder as a community shift; the full list goes to the TSV. A real fix
 needs a clinical-relevance annotation per taxon, which does not exist for 1,463 species.
 
+**3b. ~~The threat list is CDC-only, so a clinically serious organism cannot exceed MONITOR~~ —
+FIXED.** Found by comparing the HTML report against the briefing deck: the deck called WBM232
+`ESCALATE`, the report showed *A. baumannii* at `MONITOR`, and the reason was structural rather
+than evidential. `threat_list` is exclusively CDC Category A/B/C, so *A. baumannii* took the
+non-threat path, whose only outcomes are `NO_ACTION` and `MONITOR`. Measured across all five
+samples before the fix: **257 `MONITOR`, 3 `NO_ACTION`, and not one non-threat taxon above
+`MONITOR` in any sample.** The engine had no way to say *"clinically serious, not a bioweapon"*.
+
+A `clinical_watchlist` (24 organisms, WHO priority list + ESKAPE) now carries those, with a
+ceiling of `CONFIRM` — `ESCALATE` stays reserved for a CDC agent with its confirmatory marker.
+WBM232's *A. baumannii* reaches `CONFIRM` on evidence that was already in the data: 6× enriched,
+27% unique, 121 distinct virulence factors, and co-located acquired resistance. See
+[`reference_triage.md`](reference_triage.md#clinical_watchlist--24-organisms).
+
+**3c. Sample-level verdict added.** The deck carried one verdict per swab and the row tiers had no
+equivalent, so a reader comparing the two saw an apparent downgrade that was really a change of
+subject. `sample_verdict()` rolls the rows up:
+
+| Sample | Deck (human) | Engine |
+|---|---|---|
+| WBM156 | NO ACTION | **MONITOR** |
+| WBM174 | MONITOR | MONITOR |
+| WBM179 | MONITOR | MONITOR |
+| WBM185 | INVESTIGATE | INVESTIGATE |
+| WBM232 | ESCALATE | **INVESTIGATE** |
+
+Three of five identical. WBM156 differs because the engine reports watchlist organisms
+(*S. maltophilia*, *P. aeruginosa*, *Providencia*) that a human read as ordinary water flora on a
+restroom tap. WBM232 differs by design: a watchlist organism cannot drive a sample past
+`INVESTIGATE`.
+
 **4. Marker logic conflates the bioweapon with the organism.** *S. aureus* is `NO_ACTION` in all
 five samples because `seb` is absent — correct for *"staphylococcal enterotoxin B as a Category B
 agent"*, wrong as a summary of *S. aureus* in WBM185, where it co-occurs with *mecA* at

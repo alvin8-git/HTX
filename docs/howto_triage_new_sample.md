@@ -51,6 +51,20 @@ samples to work.
 python3 analysis/triage.py batch7/S1 batch7/S2 batch7/S3
 ```
 
+**Unless the samples are not from one site.** Different donors, different facilities, different
+studies — add `--independent`. Gate 8 asks "is this taxon enriched *here* relative to the others",
+and between four unrelated gut microbiomes that question has no meaning: ordinary
+inter-individual variation comes back as "222× enriched".
+
+```bash
+python3 analysis/triage.py --independent stool_sms/A stool_sms/B stool_sms/C
+```
+
+Long reads need no flag. `detect_platform()` reads the mean read length out of the report's QC
+block, and at ≥1 kb the acquired-gene gates switch to the long-read pair (≥95%/≥2× instead of
+≥80%/≥5×) — breadth saturates when one read spans a whole gene, and one unit of depth is one whole
+molecule. The **Platform** row on the QC tab tells you which set was applied.
+
 ### 3. Read the output top-down
 
 ```
@@ -76,16 +90,18 @@ Zymo/ZymoBac_6ng   classified=38,367,696
 
 Read it in this order:
 
-1. **`[integrity]` lines.** If the read partition does not sum, or FASTQs are missing or empty,
+1. **`SAMPLE VERDICT`.** One answer for the whole swab — `NO ACTION` / `MONITOR` / `INVESTIGATE` /
+   `ESCALATE` — with the rows that drove it listed beneath. This is the line to quote in a summary.
+2. **`[integrity]` lines.** If the read partition does not sum, or FASTQs are missing or empty,
    stop and fix the delivery before believing anything below.
-2. **`ESCALATE`** — a threat-list agent with its confirmatory marker present. This is the only
+3. **`ESCALATE`** — a threat-list agent with its confirmatory marker present. This is the only
    tier that asserts a biological threat. If it fires, escalate; do not re-derive it yourself.
-3. **`CONFIRM`** — real and actionable. For AMR genes it is the terminal tier and it means
+4. **`CONFIRM`** — real and actionable. For AMR genes it is the terminal tier and it means
    *"ask a laboratory about this gene"*, **not** *"the sample is resistant"*.
-4. **`NOT_TESTED`** — a threat-list agent this assay structurally cannot see. **Never read this as
+5. **`NOT_TESTED`** — a threat-list agent this assay structurally cannot see. **Never read this as
    a negative.** A DNA library cannot detect an RNA virus; the test did not run.
-5. **`MONITOR`** — worth knowing, not worth acting on today.
-6. **`suppressed` and `rule coverage`.** `rule coverage` must read `N/N … 0 need a rule`. Anything
+6. **`MONITOR`** — worth knowing, not worth acting on today.
+7. **`suppressed` and `rule coverage`.** `rule coverage` must read `N/N … 0 need a rule`. Anything
    else means MEGARes groups landed in the engine that no rule describes.
 
 ### 4. Read the TSV for the detail
@@ -96,6 +112,31 @@ column -t -s$'\t' analysis/triage_NEWSAMPLE.tsv | less -S
 
 Every row carries `reason` (the rule that fired) and, for AMR, `note` (what the gene actually is).
 Nothing is dropped silently — rows suppressed from stdout are all present here.
+
+### 5. Build the HTML report to see the evidence behind each verdict
+
+```bash
+python3 analysis/triage.py --html NEWSAMPLE      # -> analysis/triage_report.html
+python3 analysis/triage.py --html batch7/S1 batch7/S2 batch7/S3   # whole batch, one file
+python3 analysis/triage.py --html --out=analysis/batch7.html batch7/S1 batch7/S2
+```
+
+Without `--out=`, every run overwrites `analysis/triage_report.html`. Pass the same flags you passed
+in step 2 — `--independent` included, or the report will disagree with the TSVs.
+
+Open it in any browser. One file, no network, nothing to install — it survives being emailed.
+
+The **Flaggable species** tab is the one to start on: cards banded `ESCALATE` → `NO_ACTION`, each
+carrying the taxonomy counts, the confirmatory-marker status, and the VFDB rows attributed to that
+species **with their accessions**. That last part is the point — to check a claim, copy the
+accession (`VFG004763(gb|WP_011274497)`) into the PFI report's virulence table and read the
+original row. Same for `MEG_` accessions on the **Resistance genes** tab and taxids on the species
+cards.
+
+Where a species card shows a dashed amber box headed **INFERRED, NOT MEASURED**, read the warning
+in it. Those resistance genes were found in the *sample*, and that genus is a documented host for
+them — the data does not say the gene is in that organism, and nothing downstream should treat it
+as if it did.
 
 ## Verification
 
@@ -139,9 +180,11 @@ nothing is lost — but add the pair to `mechanism_classes` in `analysis/triage_
 `"Type|Mechanism"`. See [`reference_triage.md`](reference_triage.md#mechanism_classes--115-entries).
 
 **A resistance gene you expected is `MONITOR`, not `CONFIRM`**
-Check breadth and depth against the two routes: full length is ≥80%/≥5×, fragment is ≥55%/≥10×.
-A gene below both is genuinely weak evidence. If the gene is clinically decisive and you can argue
-the threshold, add a `group_thresholds` entry with its `why` field filled in.
+Check breadth and depth against the two routes. Short read: full length ≥80%/≥5×, fragment
+≥55%/≥10×. Long read: ≥95%/≥2× and ≥80%/≥5×. A gene below both is genuinely weak evidence — on a
+long-read run, 100% breadth at 1.0× is a single molecule, which names the gene but cannot settle
+the allele. If the gene is clinically decisive and you can argue the threshold, add a
+`group_thresholds` entry with its `why` field filled in.
 
 **An organism you know is present does not appear**
 Three gates can remove it: fewer than 50 real reads, a unique-read fraction below 15%

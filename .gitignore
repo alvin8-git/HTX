@@ -6,8 +6,18 @@ WBM*/
 # PFI single-page reports (~7 MB each) and the classifier taxonomy.
 WBM*_en.html
 Zymo/
-PFIDB_v5_0.xlsx
+stool_sms/
 sampleInfo.xlsx
+
+# Classifier reference lists — PFIDB_v5_0.xlsx plus the kingdom-split taxid lists.
+# Vendor data, 2.3 MB, not ours to redistribute. analysis/resolve_taxids.py and
+# analysis/export_rules.py read them when present and degrade gracefully when absent.
+PFI_DB/
+
+# Headless-Chrome and npx scratch from docs/img/render.sh.
+Crashpad/
+.com.google.Chrome.*
+node-compile-cache/
 
 # Assembly output — 71 MB, includes a 55 MB contigs FASTA and bwa-mem2 indexes.
 assembly/
@@ -17,6 +27,12 @@ analysis/*.tsv
 analysis/*.json
 !analysis/triage_rules.json
 analysis/WBM*.json
+
+# Generated evidence reports and exports — rebuild with `triage.py --html` and
+# `export_rules.py`. The stool report additionally carries donor sample identifiers.
+# docs/reference_rules.md is the diffable equivalent of the workbook and IS tracked.
+analysis/triage_report*.html
+analysis/triage_rules.xlsx
 
 # Briefing decks and templates.
 *.pptx

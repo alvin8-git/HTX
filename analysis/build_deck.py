@@ -9,7 +9,7 @@ reference): Arial throughout, MINIMUM body size 12 pt - see MIN_PT, which floors
 
     python3 analysis/build_deck.py    ->  HTX_biosurveillance_briefing.pptx
 """
-import csv, os, openpyxl
+import csv, json, os, re, openpyxl
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
@@ -60,24 +60,29 @@ FLAGGED = {
         ('Streptococcus sanguinis', '41,427 reads (3.43%)', 'Oral flora transfer; 40 VFDB hits are commensal adhesins', 'grey'),
     ],
     'WBM185': [
-        ('mecA - MEG_3778', '90.89% cov / 10.51x', 'Strongest AMR call in the batch at read level, but it did NOT assemble - host unresolved', 'red'),
+        ('mecA - MEG_3778', '90.89% cov / 10.51x', 'Strongest AMR call in the batch, but it did NOT assemble - host unresolved', 'red'),
         ('CTX-M ESBL - MEG_2430', '82.88% cov / 7.25x', 'Extended-spectrum beta-lactamase, with K. pneumoniae also present', 'red'),
+        ('mupA - MEG_4089', '90.18% cov / 11.70x', 'High-level mupirocin resistance - decolonisation would likely fail', 'red'),
         ('Staphylococcus aureus', '2,300 reads (0.42%)', 'Co-occurs with abundant CoNS (S. hominis 11.2%, S. haemolyticus 1.8%)', 'amber'),
         ('Bacillus cereus group', '43 reads, 42% unique', 'Real environmental B. cereus; zero anthrax plasmid markers', 'amber'),
     ],
     'WBM232': [
-        ('Acinetobacter baumannii', '6,496 reads (4.72%), 27% unique', 'SITE-SPECIFIC ENRICHMENT: 2,507 rpm vs 58-417 rpm elsewhere (6-43x)', 'red'),
+        ('Acinetobacter baumannii', '6,496 reads (4.72%)', 'SITE-SPECIFIC ENRICHMENT: 2,507 rpm vs 58-417 rpm elsewhere (6-43x)', 'red'),
         ('CTX-M ESBL - MEG_2378', '60.56% cov / 11.69x', 'Acquired ESBL - the one genuinely acquired resistance gene here', 'red'),
-        ('AdeJ and LpxA - MEG_692, MEG_3626', '53.72% / 5.38x  and  51.65% / 1.90x', 'Efflux pump and colistin target - PRESENCE ONLY, resistance not demonstrated', 'amber'),
+        ('AdeJ / AdeN / LpxA', '53.7% / 85.8% / 51.7% cov', 'Efflux pump, its repressor, colistin target - PRESENCE ONLY, not resistance', 'amber'),
         ('L. pneumophila / C. tetani / N. meningitidis', '25 / 28 / 13 reads', 'ALL REFUTED - 2 unique molecules, or GC far from the expected genome GC', 'grey'),
     ],
 }
 
 ACTIONABLE = {
-    'WBM156': ('NO ACTION', GREEN,
+    'WBM156': ('MONITOR', AMBER,
                'Profile is human oral/salivary flora plus water-associated organisms - exactly what a '
-               'restroom tap should look like. No threat agent, no clinically meaningful AMR '
+               'restroom tap should look like. No threat agent, no acquired AMR of consequence '
                '(13 resistance classes, all intrinsic/ribosomal).\n'
+               'WHY NOT "NO ACTION": three WHO-priority organisms are present - S. maltophilia, '
+               'P. aeruginosa and P. rettgeri, the last of them only in this sample. None is enriched '
+               'against the other four swabs, so this is plumbing biofilm rather than a site event, but '
+               'a named priority organism is not nothing.\n'
                'CAVEAT: 91.3% of reads were host; only 622k classified reads survived - ~5x less microbial '
                'data than WBM179. The short hit list is a sensitivity limit, not a clean tap.'),
     'WBM174': ('MONITOR', AMBER,
@@ -98,15 +103,18 @@ ACTIONABLE = {
                '"MRSA" cannot be claimed from this data. Culture is now the only way to settle it.\n'
                'ACTION 2: enhanced disinfection audit of check-in kiosk touchscreens; re-swab with a '
                'culture arm to obtain isolates for AST.'),
-    'WBM232': ('ESCALATE', RED,
+    'WBM232': ('INVESTIGATE', RED,
                'The one operationally significant finding in the batch. A. baumannii at 4.72% with a '
-               'depth-normalised load 6-43x above every other site - this passes the kitome test, i.e. it '
-               'is real site enrichment, not reagent background. 268 A. baumannii virulence-factor hits.\n'
-               'ACTION 1: re-swab T4 trolley handles WITH A CULTURE ARM. Metagenomics cannot give you an '
-               'antibiogram; you need an isolate for AST.\n'
-               'ACTION 2: treat the CTX-M / LpxA / AdeJ combination as a hypothesis to test by culture, '
-               'not as a confirmed XDR organism - the next slide explains why.\n'
-               'ACTION 3: trolley-handle disinfection frequency review at T4 departure rows 5-6.'),
+               'depth-normalised load 6-43x above every other site - real site enrichment, not reagent '
+               'background. 326 virulence-factor rows, collapsing to 121 distinct factors.\n'
+               'WHY NOT "ESCALATE": that tier is reserved for a CDC Category A/B/C agent with its '
+               'confirmatory marker present. A. baumannii is a WHO-priority hospital pathogen, not a '
+               'declared threat agent. The response below is unchanged; only the label is.\n'
+               'ACTION 1: re-swab T4 trolley handles WITH A CULTURE ARM - metagenomics cannot give an '
+               'antibiogram.\n'
+               'ACTION 2: treat CTX-M / LpxA / AdeJ as a hypothesis to test by culture, not a confirmed '
+               'XDR organism - next slide.\n'
+               'ACTION 3: disinfection frequency review at T4 departure rows 5-6.'),
 }
 
 CAT_A = [
@@ -122,7 +130,9 @@ CAT_A = [
      'carried by K. pneumoniae and E. coli - a shared iron-uptake island, not plague.'),
     ('Francisella tularensis', 'NEGATIVE', 'Absent, and no Francisella congeners detected.'),
     ('Variola / Orthopoxvirus', 'NEGATIVE',
-     'Meaningful negative - these are dsDNA viruses and WOULD have been sequenced by this DNA library.'),
+     'Meaningful negative - these are dsDNA viruses and WOULD have been sequenced by this DNA library. '
+     'The call rests on taxonomy against vaccinia / cowpox / mpox: VFDB is a bacterial database, so '
+     'there is no orthopoxvirus marker gene to confirm with.'),
     ('Viral haemorrhagic fevers\n(Ebola, Marburg, Lassa, Junin)', 'NOT ASSESSABLE',
      'All are RNA viruses. There is NO RNA library in this batch, so they are structurally undetectable. '
      'This is a missing test, not a negative result.'),
@@ -131,7 +141,8 @@ CAT_A = [
 CAT_BC = [
     ('B', 'Brucella spp.', '"Brucella anthropi" in all 5 samples (14-1,824 rds)',
      'NOT BRUCELLOSIS - this is Ochrobactrum anthropi, renamed into Brucella in 2020. Ubiquitous reagent '
-     'contaminant. It carries a false "Human Infection: Y" flag in every sample.'),
+     'contaminant, carrying a false "Human Infection: Y" flag in every sample. Now separable by gene, '
+     'not just by name: btpA/btpB are Brucella TIR effectors that Ochrobactrum lacks. Absent here.'),
     ('B', 'Vibrio cholerae', 'WBM179, 11 reads', 'REFUTED - 1 unique molecule, no cholera toxin genes.'),
     ('B', 'Clostridium perfringens', 'WBM174 84, WBM185 248, WBM232 29 rds',
      'Present at trace level. Ubiquitous soil/gut anaerobe; no epsilon-toxin (etx) gene detected.'),
@@ -143,7 +154,8 @@ CAT_BC = [
      'Low-confidence trace calls; R. prowazekii (the listed agent) is absent.'),
     ('C', 'Mycobacterium tuberculosis (MDR-TB)', 'ABSENT',
      'No M. tuberculosis complex reads. The Mycobacterium present (M. avium, M. grossiae, M. paragordonae, '
-     'M. intracellulare) are environmental NTM, typical of building water systems.'),
+     'M. intracellulare) are environmental NTM, typical of building water systems. Backed by esxA/esxB '
+     '(RD1) - deleted in BCG and absent from most NTM. Absent here.'),
     ('C', 'Nipah, Hantavirus, TBE, Yellow fever', 'NOT ASSESSABLE',
      'All RNA viruses - no RNA library. Same structural blind spot as the Category A VHFs.'),
 ]
@@ -393,6 +405,32 @@ def s_topspecies(prs, SP):
           'the top three.', size=12, color=GREY, line=1.2)
 
 
+def list_badge(label):
+    """'CDC A' / 'WHO critical' / None for a flagged-row label, read from triage_rules.json.
+
+    Taken from the rule file rather than typed onto the slide so the deck cannot drift from the
+    engine. Returns None for gene rows ('mecA - MEG_3778') and for species on neither list -
+    absence of a badge is itself information: the row was flagged for evidence, not for
+    membership. Handles the abbreviated forms used on crowded rows ('L. pneumophila')."""
+    rules = json.load(open(os.path.join(ROOT, 'analysis', 'triage_rules.json')))
+    tl = {k: v for k, v in rules['threat_list'].items() if k != '_comment'}
+    wl = {k: v for k, v in rules['clinical_watchlist'].items() if k != '_comment'}
+    if 'MEG_' in label:
+        return None
+    name = label.strip()
+    if name in tl:
+        return 'CDC ' + tl[name]['tier']
+    if name in wl:
+        return wl[name]['priority']
+    m = re.match(r'^([A-Z])\.\s+(\S+)$', name)          # 'L. pneumophila'
+    if m:
+        for k, v in list(tl.items()) + list(wl.items()):
+            parts = k.split(' ')
+            if len(parts) >= 2 and parts[0][0] == m.group(1) and parts[1] == m.group(2):
+                return 'CDC ' + v['tier'] if k in tl else v['priority']
+    return None
+
+
 def s_sample(prs, sm, Q, SP, AM, VF):
     s = blank(prs)
     verdict, vcolor, action = ACTIONABLE[sm]
@@ -409,23 +447,33 @@ def s_sample(prs, sm, Q, SP, AM, VF):
     rows = [['Species', 'Ab %', 'Real', 'Est.']]
     for x in SP[sm][:8]:
         rows.append([x['name'], x['ab'], f"{int(x['real']):,}", f"{int(x['est']):,}"])
-    table(s, 0.5, 2.15, 5.9, rows, [3.33, 0.75, 0.86, 0.97], sizes=(12, 12), row_h=0.27)
+    table(s, 0.5, 2.15, 5.9, rows, [3.21, 0.75, 0.95, 0.99], sizes=(12, 12), row_h=0.27)
 
-    txbox(s, 6.7, 1.82, 6.13, 0.28, 'FLAGGABLE SPECIES / SIGNALS', size=12.5, bold=True, color=RED)
+    txbox(s, 6.7, 1.82, 4.6, 0.28, 'FLAGGABLE SPECIES / SIGNALS', size=12.5, bold=True, color=RED)
+    txbox(s, 11.3, 1.82, 1.53, 0.28, 'THREAT LIST', size=9.5, bold=True, color=BLUE,
+          align=PP_ALIGN.CENTER)
     cmap = {'red': RED, 'amber': AMBER, 'grey': GREY}
     y = 2.15
     for name, ev, note, lvl in FLAGGED[sm]:
         rgb = cmap[lvl]
+        badge = list_badge(name)
+        wide = 4.35 if badge else 5.88          # leave the right margin clear for the chip
         dot = s.shapes.add_shape(9, Inches(6.72), Inches(y + 0.05), Inches(0.11), Inches(0.11))
         dot.fill.solid(); dot.fill.fore_color.rgb = rgb
         dot.line.fill.background(); dot.shadow.inherit = False
-        txbox(s, 6.95, y - 0.03, 5.88, 0.24, f'{name}   -   {ev}', size=13, bold=True, color=rgb)
-        txbox(s, 6.95, y + 0.24, 5.88, 0.42, note, size=12, color=INK, line=1.1)
-        y += 0.72
+        head = f'{name}   -   {ev}'
+        # The chip steals 1.5" from this row, so a long name plus a long evidence string wraps
+        # into the note line below it. Shrink rather than wrap.
+        txbox(s, 6.95, y - 0.03, wide, 0.24, head,
+              size=13 if len(head) <= 46 or not badge else 11.5, bold=True, color=rgb)
+        txbox(s, 6.95, y + 0.24, 5.88, 0.4, note, size=12, color=INK, line=1.1)
+        if badge:
+            chip(s, 11.4, y - 0.02, 1.43, 0.23, badge, BLUE, size=9.5)
+        y += 0.62
 
-    txbox(s, 0.5, 4.95, 12.33, 0.28, f'WHAT IS ACTIONABLE  -  {verdict}',
+    txbox(s, 0.5, 5.35, 12.33, 0.28, f'WHAT IS ACTIONABLE  -  {verdict}',
           size=12.5, bold=True, color=vcolor)
-    txbox(s, 0.5, 5.28, 12.33, 1.7, action, size=13, line=1.18, space_after=3)
+    txbox(s, 0.5, 5.66, 12.33, 1.6, action, size=12, line=1.15, space_after=3)
 
 
 def s_botulism(prs):
@@ -489,23 +537,24 @@ def s_wbm185_evidence(prs):
             ['MECI', 'MEG_3803', '65.50%', '5.66x', 'mecI is the REPRESSOR of the mec operon - co-occurrence supports a genuine SCCmec element (mecR1 not detected)'],
             ['CTX', 'MEG_2430', '82.88%', '7.25x', 'BEST ALLELE of the blaCTX-M family - the representative ESBL call'],
             ['CTX', 'MEG_2435', '54.14%', '2.71x', 'Partial cross-mapping onto a second CTX-M allele'],
-            ['BLAZ', 'MEG_1330 / 1331', '70.65% / 64.73%', '8.17x / 4.24x', 'Staphylococcal penicillinase - ordinary carriage, and the one gene that DID assemble']]
-    colors = {(1, 0): RED, (1, 4): RED, (5, 0): RED, (5, 4): RED}
-    bolds = {(1, 0): True, (1, 4): True, (5, 0): True, (5, 4): True}
+            ['BLAZ', 'MEG_1330 / 1331', '70.65% / 64.73%', '8.17x / 4.24x', 'Staphylococcal penicillinase - ordinary carriage, and the one gene that DID assemble'],
+            ['MUPA', 'MEG_4089', '90.18%', '11.70x', 'High-level mupirocin resistance (alternate IleRS) - the gene that would defeat decolonisation']]
+    colors = {(1, 0): RED, (1, 4): RED, (5, 0): RED, (5, 4): RED, (8, 0): RED, (8, 4): RED}
+    bolds = {(1, 0): True, (1, 4): True, (5, 0): True, (5, 4): True, (8, 0): True, (8, 4): True}
     table(s, 0.5, 2.32, 12.33, rows, [0.85, 1.7, 1.4, 1.2, 7.18], sizes=(12, 12), row_h=0.42,
           colors=colors, bolds=bolds)
-    txbox(s, 0.5, 5.68, 6.05, 0.28, 'WHY 90.89% COVERAGE IS THE STRONG PART', size=13, bold=True, color=GREEN)
-    txbox(s, 0.5, 6.0, 6.05, 1.1,
+    txbox(s, 0.5, 6.12, 6.05, 0.26, 'WHY 90.89% COVERAGE IS THE STRONG PART', size=12, bold=True, color=GREEN)
+    txbox(s, 0.5, 6.40, 6.05, 0.95,
           'Breadth, not depth, separates a real gene from a conserved fragment. 90.89% of the ~2 kb mecA '
-          'reference carries read support at 10.5x depth - a near-complete gene, and the reason mecA is '
-          'the strongest AMR call in the batch AT READ LEVEL.',
-          size=13, line=1.15)
-    txbox(s, 6.78, 5.68, 6.05, 0.28, 'WHY IT STILL IS NOT "MRSA"', size=13, bold=True, color=RED)
-    txbox(s, 6.78, 6.0, 6.05, 1.1,
+          'reference carries read support at 10.5x - the reason mecA is the strongest AMR call in the '
+          'batch AT READ LEVEL.',
+          size=12, line=1.12)
+    txbox(s, 6.78, 6.12, 6.05, 0.26, 'WHY IT STILL IS NOT "MRSA"', size=12, bold=True, color=RED)
+    txbox(s, 6.78, 6.40, 6.05, 0.95,
           'Read-level calling carries no linkage, so mecA is tied to no organism - and S. aureus '
-          '(2,300 rds) and coagulase-negative staphylococci (S. hominis 11.2%) are both abundant. We '
-          'assembled the sample to close that gap. It did not close - see next slide.',
-          size=13, line=1.15)
+          '(2,300 rds) and CoNS (S. hominis 11.2%) are both abundant. Assembly did not close the gap '
+          '- see next slide.',
+          size=12, line=1.12)
 
 
 def s_assembly(prs):
@@ -611,12 +660,50 @@ def s_cat_bc(prs):
     for i, (cat, ag, obs, note) in enumerate(CAT_BC, start=1):
         rows.append([cat, ag, obs, note])
         colors[(i, 0)] = BLUE
-    table(s, 0.5, 1.36, 12.33, rows, [0.4, 2.98, 2.59, 6.36], sizes=(12, 12), row_h=0.6, colors=colors)
-    txbox(s, 0.5, 6.63, 12.4, 0.6,
-          'Nothing in Category B or C constitutes a public-health event. The single most important line '
-          'is the first one: the Brucella flag in all five samples is a taxonomy artifact, and it is the '
-          'kind of thing that triggers an unnecessary escalation if taken at face value.',
+    table(s, 0.5, 1.32, 12.33, rows, [0.4, 2.98, 2.59, 6.36], sizes=(12, 12), row_h=0.55, colors=colors)
+    txbox(s, 0.5, 6.15, 12.4, 0.5,
+          'Nothing in Category B or C constitutes a public-health event. The most important line is the '
+          'first: the Brucella flag in all five samples is a taxonomy artifact, and taken at face value '
+          'it is exactly the kind of thing that triggers an unnecessary escalation.',
           size=12, color=GREY, line=1.2)
+
+
+def s_evidence_strength(prs):
+    s = blank(prs)
+    title(s, 'How strong is each negative?',
+          'All 46 CDC agents are screened - but "not found" does not mean the same thing four times over')
+    rows = [['Strength', 'n', 'What was actually done', 'Agents'],
+            ['MARKER-CONFIRMED\nNEGATIVE', '9',
+             'A toxin or virulence gene unique to the agent was searched for and not found. The gene is '
+             'reliably in VFDB, so the miss IS the negative. These downgrade the organism outright.',
+             'anthrax (pXO1/pXO2), botulism (bont), plague (caf1/lcrV/pla), tularaemia (fopA/tul4), '
+             'C. perfringens (etx), S. aureus (seb), cholera (ctxA/ctxB), Shigella and E. coli (stx1/stx2/eae)'],
+            ['MARKER-SUPPORTED\nNEGATIVE', '8',
+             'A marker was searched for and not found, but VFDB coverage for the agent cannot be verified '
+             'from the report. Finding it would escalate; NOT finding it changes nothing. A one-way test.',
+             'Brucella x3 (btpA/btpB, omp25/31, bvrR/S), Burkholderia x2 (bsa T3SS, bimA, capsule), '
+             'Coxiella burnetii (dotA/dotB), Salmonella (Vi capsule tviA-E), M. tuberculosis (esxA/esxB)'],
+            ['TAXONOMY ONLY', '4',
+             'No usable marker exists. Rests on the read assignment and on naming the look-alikes it '
+             'could be confused with.',
+             'Variola (VFDB is bacterial), C. psittaci (its genes are genus-wide), R. prowazekii (the '
+             'discriminator is an ABSENCE - typhus group lacks ompA), Cryptosporidium (not a bacterium)'],
+            ['NOT ASSESSABLE', '25',
+             'RNA genomes against a DNA-only library. The test did not run. This is a missing test, not '
+             'a negative result, and it is never allowed to collapse into one.',
+             'All viral haemorrhagic fevers, the encephalitides, influenza, SARS/MERS, Nipah, Hendra, '
+             'yellow fever, chikungunya, TBE']]
+    colors = {(1, 0): GREEN, (2, 0): BLUE, (3, 0): AMBER, (4, 0): RED}
+    bolds = {(i, 0): True for i in (1, 2, 3, 4)}
+    table(s, 0.5, 1.45, 12.33, rows, [1.62, 0.42, 4.44, 5.85], sizes=(12, 11), row_h=1.05,
+          colors=colors, bolds=bolds)
+    txbox(s, 0.5, 6.18, 12.4, 0.9,
+          'WHY THE MIDDLE BAND IS ONE-WAY: a marker that is not in the reference database can never be '
+          'found, and a two-way test would read that as a clean bill of health. Treating the miss as no '
+          'information is the only safe direction.\n'
+          'Marker searches are also restricted to reference strains of the same genus - unrestricted, '
+          'S. aureus\'s own esxA/esxB would have "confirmed" M. tuberculosis on a certified-clean control.',
+          size=12, color=GREY, line=1.18, space_after=4)
 
 
 def s_amr(prs, AM):
@@ -627,8 +714,8 @@ def s_amr(prs, AM):
         'WBM156': '- none of concern (13 classes, all intrinsic ribosomal / efflux)',
         'WBM174': 'blaZ 11.71x, ermC 10.17x  - community-normal S. aureus carriage',
         'WBM179': 'blaZ 6.04x, mecI 1.62x  - mecI regulator WITHOUT mecA; not MRSA',
-        'WBM185': "mecA 90.9% / 10.51x,  CTX-M 82.9% / 7.25x,  aac(6') 79.8% / 7.42x,  blaZ 70.7% / 8.17x",
-        'WBM232': "CTX-M 60.6% / 11.69x,  aac(6') 63.7% / 14.08x,  AdeH 88.6% / 19.8x,  AdeJ 53.7% / 5.38x,  LpxA 51.7% / 1.90x",
+        'WBM185': "mecA 90.9% / 10.51x,  mupA 90.2% / 11.70x,  CTX-M 82.9% / 7.25x,  aac(6') 79.8% / 7.42x,  blaZ 70.7% / 8.17x",
+        'WBM232': "CTX-M 60.6% / 11.69x,  aac(6') 63.7% / 14.08x,  AdeH 88.6% / 19.8x,  AdeN 85.8% / 8.85x,  AdeJ 53.7% / 5.38x,  LpxA 51.7% / 1.90x",
     }
     rows = [['Sample', 'AMR genes', 'Classes', 'Key beta-lactam / high-risk determinants']]
     colors, bolds = {}, {}
@@ -661,7 +748,8 @@ def s_recs(prs):
          'lpxA / gyrA point mutations either. An A. baumannii isolate is needed for AST.'),
         ('2', 'Do not use the word "MRSA" for WBM185 on current evidence', RED,
          'Read-level mecA is strong (90.9% breadth) but assembly could not recover it, so it cannot be '
-         'attributed to S. aureus rather than to the abundant coagulase-negative staphylococci.'),
+         'attributed to S. aureus rather than to the abundant coagulase-negative staphylococci. Note '
+         'mupA at 90.2% on the same surface - if decolonisation is proposed, mupirocin is the wrong drug.'),
         ('3', 'Add an RNA library to the protocol', AMBER,
          'Four of six Category A agents and every respiratory virus of surveillance interest are RNA '
          'viruses. The current assay cannot see them at all. This is the single largest gap.'),
@@ -705,6 +793,7 @@ def build():
             s_wbm232_evidence(prs)
     s_cat_a(prs)
     s_cat_bc(prs)
+    s_evidence_strength(prs)
     s_amr(prs, AM)
     s_recs(prs)
 

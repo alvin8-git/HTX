@@ -8,7 +8,9 @@
     "gene_depth_confident": 5.0,
     "gene_breadth_floor": 50.0,
     "unique_fraction_floor": 0.15,
-    "unique_probe_reads": 40000
+    "unique_probe_reads": 40000,
+    "watchlist_min_abundance_no_comparators": 1.0,
+    "long_read_length_bp": 1000.0
   },
   "threat_list": {
     "Bacillus anthracis": {
@@ -22,7 +24,9 @@
         "Bacillus cereus",
         "Bacillus thuringiensis",
         "Bacillus mycoides"
-      ]
+      ],
+      "taxid": "1392",
+      "amr_expectation": "Chromosomal bla1/bla2 beta-lactamases are present but poorly expressed; wild-type B. anthracis remains penicillin-susceptible and carries no recognised mobile resistome. An acquired resistance gene in this genus would itself be the finding."
     },
     "Clostridium botulinum": {
       "tier": "A",
@@ -34,7 +38,8 @@
         "Clostridium baratii",
         "Clostridium butyricum",
         "Clostridium sporogenes"
-      ]
+      ],
+      "taxid": "1491"
     },
     "Yersinia pestis": {
       "tier": "A",
@@ -47,7 +52,9 @@
       "near_neighbours": [
         "Yersinia pseudotuberculosis",
         "Yersinia enterocolitica"
-      ]
+      ],
+      "taxid": "632",
+      "amr_expectation": "Wild-type Y. pestis is susceptible to all first-line agents. The two documented multi-resistant isolates (Madagascar, 1995) carried IncP plasmids and are the exception that defines the rule; no endemic mobile resistome exists."
     },
     "Francisella tularensis": {
       "tier": "A",
@@ -59,7 +66,9 @@
       "near_neighbours": [
         "Francisella philomiragia",
         "Francisella persica"
-      ]
+      ],
+      "taxid": "263",
+      "amr_expectation": "Intrinsically resistant to beta-lactams via a chromosomal class A beta-lactamase, but with no acquired mobile resistome; clinical resistance to aminoglycosides, tetracyclines or fluoroquinolones has essentially not been reported."
     },
     "Variola virus": {
       "tier": "A",
@@ -69,97 +78,113 @@
         "Vaccinia virus",
         "Cowpox virus",
         "Monkeypox virus"
-      ]
+      ],
+      "taxid": "10255"
     },
     "Zaire ebolavirus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "186538"
     },
     "Sudan ebolavirus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "186540"
     },
     "Marburg marburgvirus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "3052505"
     },
     "Lassa mammarenavirus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "3052310"
     },
     "Argentinian mammarenavirus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "2169991"
     },
     "Brazilian mammarenavirus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "3052299"
     },
     "Machupo mammarenavirus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "3052317"
     },
     "Guanarito mammarenavirus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "3052307"
     },
     "Chapare mammarenavirus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "3052302"
     },
     "Lujo mammarenavirus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "3052314"
     },
     "Crimean-Congo hemorrhagic fever orthonairovirus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "3052518"
     },
     "Rift Valley fever phlebovirus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "3052676"
     },
     "Yellow fever virus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "11089"
     },
     "Omsk hemorrhagic fever virus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "12542"
     },
     "Kyasanur Forest disease virus": {
       "tier": "A",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "33743"
     },
     "Brucella melitensis": {
       "tier": "B",
@@ -167,7 +192,14 @@
       "markers": [],
       "near_neighbours": [
         "Brucella anthropi"
-      ]
+      ],
+      "supporting_markers": [
+        "btp",
+        "omp2531",
+        "bvr"
+      ],
+      "taxid": "29459",
+      "amr_expectation": "Brucella spp. have no documented mobile resistome; rifampicin and fluoroquinolone resistance, when reported, is chromosomal point mutation (rpoB, gyrA). A MEGARes acquired-gene hit is not expected to belong to this organism."
     },
     "Brucella abortus": {
       "tier": "B",
@@ -175,7 +207,14 @@
       "markers": [],
       "near_neighbours": [
         "Brucella anthropi"
-      ]
+      ],
+      "supporting_markers": [
+        "btp",
+        "omp2531",
+        "bvr"
+      ],
+      "taxid": "235",
+      "amr_expectation": "See Brucella melitensis: no documented mobile resistome; resistance when reported is chromosomal point mutation."
     },
     "Brucella suis": {
       "tier": "B",
@@ -183,43 +222,87 @@
       "markers": [],
       "near_neighbours": [
         "Brucella anthropi"
-      ]
+      ],
+      "supporting_markers": [
+        "btp",
+        "omp2531",
+        "bvr"
+      ],
+      "taxid": "29461",
+      "amr_expectation": "See Brucella melitensis: no documented mobile resistome; resistance when reported is chromosomal point mutation."
     },
     "Burkholderia mallei": {
       "tier": "B",
       "genome": "DNA",
       "markers": [],
       "near_neighbours": [
-        "Burkholderia pseudomallei"
-      ]
+        "Burkholderia pseudomallei",
+        "Burkholderia thailandensis",
+        "Burkholderia cepacia",
+        "Burkholderia cenocepacia"
+      ],
+      "supporting_markers": [
+        "bsa",
+        "bimA",
+        "wcb"
+      ],
+      "taxid": "13373",
+      "amr_expectation": "See Burkholderia pseudomallei: intrinsic chromosomal PenA and AmrAB-OprA, no acquired mobile resistome."
     },
     "Burkholderia pseudomallei": {
       "tier": "B",
       "genome": "DNA",
       "markers": [],
       "near_neighbours": [
-        "Burkholderia thailandensis"
-      ]
+        "Burkholderia thailandensis",
+        "Burkholderia mallei",
+        "Burkholderia cepacia",
+        "Burkholderia cenocepacia"
+      ],
+      "supporting_markers": [
+        "bsa",
+        "bimA",
+        "wcb"
+      ],
+      "taxid": "28450",
+      "amr_expectation": "Resistance is intrinsic and chromosomal - the PenA beta-lactamase and the AmrAB-OprA efflux pump - not acquired. Ceftazidime resistance arises by penA mutation or amplification, which read-level MEGARes calling cannot see."
     },
     "Chlamydia psittaci": {
       "tier": "B",
       "genome": "DNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [
+        "Chlamydia abortus",
+        "Chlamydia trachomatis",
+        "Chlamydia pneumoniae",
+        "Chlamydia felis"
+      ],
+      "taxid": "83554",
+      "amr_expectation": "Obligate intracellular with a reduced genome; no mobile resistome is described, and laboratory tetracycline resistance has not been reproduced clinically."
     },
     "Coxiella burnetii": {
       "tier": "B",
       "genome": "DNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "supporting_markers": [
+        "dotAB"
+      ],
+      "taxid": "777",
+      "amr_expectation": "Obligate intracellular; not routinely cultured for susceptibility testing. Doxycycline resistance is attributed to chromosomal mutation, and no mobile resistome is described."
     },
     "Rickettsia prowazekii": {
       "tier": "B",
       "genome": "DNA",
       "markers": [],
       "near_neighbours": [
-        "Rickettsia typhi"
-      ]
+        "Rickettsia typhi",
+        "Rickettsia felis",
+        "Rickettsia massiliae",
+        "Rickettsia rickettsii"
+      ],
+      "taxid": "782",
+      "amr_expectation": "Obligate intracellular with a heavily reduced genome; no acquired resistance genes are described in the genus."
     },
     "Clostridium perfringens": {
       "tier": "B",
@@ -227,7 +310,8 @@
       "markers": [
         "etx"
       ],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "1502"
     },
     "Staphylococcus aureus": {
       "tier": "B",
@@ -237,7 +321,8 @@
       ],
       "near_neighbours": [
         "Staphylococcus argenteus"
-      ]
+      ],
+      "taxid": "1280"
     },
     "Vibrio cholerae": {
       "tier": "B",
@@ -246,15 +331,18 @@
         "ctxA",
         "ctxB"
       ],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "666"
     },
     "Cryptosporidium parvum": {
       "tier": "B",
       "genome": "DNA",
       "markers": [],
       "near_neighbours": [
-        "Cryptosporidium hominis"
-      ]
+        "Cryptosporidium hominis",
+        "Cryptosporidium meleagridis"
+      ],
+      "taxid": "5807"
     },
     "Salmonella enterica": {
       "tier": "B",
@@ -263,7 +351,11 @@
       "near_neighbours": [
         "Salmonella bongori"
       ],
-      "subspecies_required": "serovar (Typhi / Paratyphi / Typhimurium) - PFIDB carries no serovar rank (1 of 27,827 entries has subsp./serovar/str.), so a laboratory strain and a notifiable one are indistinguishable here"
+      "subspecies_required": "serovar (Typhi / Paratyphi / Typhimurium) - PFIDB carries no serovar rank (1 of 27,827 entries has subsp./serovar/str.), so a laboratory strain and a notifiable one are indistinguishable here",
+      "supporting_markers": [
+        "tvi"
+      ],
+      "taxid": "28901"
     },
     "Shigella dysenteriae": {
       "tier": "B",
@@ -274,7 +366,8 @@
       ],
       "near_neighbours": [
         "Escherichia coli"
-      ]
+      ],
+      "taxid": "622"
     },
     "Escherichia coli": {
       "tier": "B",
@@ -287,75 +380,95 @@
       "near_neighbours": [
         "Escherichia albertii",
         "Shigella flexneri"
-      ]
+      ],
+      "taxid": "562"
     },
     "Venezuelan equine encephalitis virus": {
       "tier": "B",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "11036"
     },
     "Eastern equine encephalitis virus": {
       "tier": "B",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "11021"
     },
     "Western equine encephalitis virus": {
       "tier": "B",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "11039"
     },
     "Nipah henipavirus": {
       "tier": "C",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "3052225"
     },
     "Hendra henipavirus": {
       "tier": "C",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "3052223"
     },
     "Severe acute respiratory syndrome-related coronavirus": {
       "tier": "C",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "694009"
     },
     "Middle East respiratory syndrome-related coronavirus": {
       "tier": "C",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "1335626"
     },
     "Influenza A virus": {
       "tier": "C",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "11320"
     },
     "Tick-borne encephalitis virus": {
       "tier": "C",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "11084"
     },
     "Chikungunya virus": {
       "tier": "C",
       "genome": "RNA",
       "markers": [],
-      "near_neighbours": []
+      "near_neighbours": [],
+      "taxid": "37124"
     },
     "Mycobacterium tuberculosis": {
       "tier": "C",
       "genome": "DNA",
       "markers": [],
       "near_neighbours": [
-        "Mycobacterium bovis"
-      ]
+        "Mycobacterium bovis",
+        "Mycobacterium avium",
+        "Mycobacterium intracellulare",
+        "Mycobacterium gordonae",
+        "Mycobacterium paragordonae",
+        "Mycobacterium abscessus"
+      ],
+      "supporting_markers": [
+        "esx"
+      ],
+      "taxid": "1773"
     }
   },
   "_taxonomy_notes_comment": "Species whose name misleads. Emitted alongside any call.",
@@ -391,11 +504,15 @@
   "amr_classes": {
     "MECA": {
       "class": "acquired",
-      "note": "Methicillin resistance. Needs a host organism to be meaningful; requires mecR1/mecI context and culture confirmation."
+      "note": "Methicillin resistance. Needs a host organism to be meaningful; requires mecR1/mecI context and culture confirmation.",
+      "high_consequence": true,
+      "high_consequence_basis": "Methicillin resistance changes first-line therapy for any staphylococcal infection."
     },
     "CTX": {
       "class": "acquired",
-      "note": "CTX-M extended-spectrum beta-lactamase. Genuinely acquired, plasmid-borne."
+      "note": "CTX-M extended-spectrum beta-lactamase. Genuinely acquired, plasmid-borne.",
+      "high_consequence": true,
+      "high_consequence_basis": "CTX-M ESBL removes third-generation cephalosporins from the options."
     },
     "BLAZ": {
       "class": "acquired",
@@ -865,7 +982,7 @@
       "note": "crpP is chromosomal in Pseudomonas aeruginosa; plasmid-borne variants exist but chromosomal is the default."
     }
   },
-  "_marker_comment": "Virulence/plasmid markers searched in the VFDB table. Absence downgrades the parent agent.",
+  "_marker_comment": "Virulence/plasmid markers searched in the VFDB table. Absence downgrades the parent agent.  Two kinds: `markers` are two-way (present=ESCALATE, absent=downgrade to NO_ACTION) and are only used where the gene is unique to the agent and reliably in VFDB. `supporting_markers` are ONE-WAY (present=ESCALATE, absent=no change) for agents where VFDB coverage cannot be certified from the report, so a miss must never read as an exclusion. All searches are restricted to VFDB rows whose reference strain shares the taxon genus.",
   "marker_patterns": {
     "pXO1": "(pag|lef|cya|pXO1)",
     "pXO2": "(cap[ABCDE]|acpA|pXO2)",
@@ -881,7 +998,16 @@
     "ctxB": "ctxB",
     "stx1": "stx1",
     "stx2": "stx2",
-    "eae": "\\beae\\b"
+    "eae": "\\beae\\b",
+    "btp": "\\bbtp[AB]\\b|\\btcpB\\b",
+    "omp2531": "\\bomp(25|31)\\b",
+    "bvr": "\\bbvr[RS]\\b",
+    "bsa": "\\bbsa[A-Z]\\d?\\b|\\bbip[BD]\\b|\\bbopE\\b",
+    "bimA": "\\bbimA\\b",
+    "wcb": "\\bwcb[A-Z]\\b",
+    "dotAB": "\\bdot[AB]\\b|\\bicm[STVWX]\\b",
+    "tvi": "\\btvi[A-E]\\b|\\bviaB\\b",
+    "esx": "\\besx[AB]\\b|\\besat-?6\\b|\\bcfp-?10\\b"
   },
   "class_thresholds": {
     "_comment": "Per-class gene thresholds. breadth/depth = full-length route. partial_breadth/partial_depth = fragment route, requires higher depth. A group entry in group_thresholds overrides its class.",
@@ -898,6 +1024,16 @@
     "_default": {
       "breadth": 80.0,
       "depth": 5.0
+    }
+  },
+  "long_read_thresholds": {
+    "_comment": "Platform override applied when mean read length >= long_read_length_bp. A 6-8 kb read spans a 1 kb gene end to end, so breadth saturates near 100% and the 80% gate stops discriminating - hence the higher breadth. One unit of depth is one whole molecule rather than a thin pileup of 150 bp fragments, so the depth gate comes down. Two molecules, not one: long-read basecall accuracy (Q10-13 in this batch) cannot settle an allele from a single read.",
+    "acquired": {
+      "breadth": 95.0,
+      "depth": 2.0,
+      "partial_breadth": 80.0,
+      "partial_depth": 5.0,
+      "why": "Full length = >=95% of the reference at >=2x, i.e. at least two spanning molecules. Fragment route = >=80% at >=5x."
     }
   },
   "group_thresholds": {
@@ -1040,6 +1176,716 @@
     "Multi-compound|Drug and biocide and metal RND efflux regulator": "regulator",
     "Multi-compound|Drug and biocide and metal SMR efflux pump": "efflux_ubiquitous",
     "Multi-compound|Drug and biocide and metal resistance regulator": "regulator",
-    "Multi-compound|Drug and metal MFS efflux pumps": "efflux_ubiquitous"
+    "Multi-compound|Drug and metal MFS efflux pumps": "efflux_ubiquitous",
+    "Drugs|Tetracycline resistance ribosomal protection proteins": "acquired",
+    "Drugs|Tetracycline inactivation enzymes": "acquired",
+    "Drugs|VanG-type resistance protein": "acquired",
+    "Drugs|VanG-type accessory protein": "acquired",
+    "Drugs|VanD-type accessory protein": "acquired",
+    "Drugs|VanA-type resistance protein": "acquired",
+    "Drugs|VanB-type resistance protein": "acquired",
+    "Drugs|VanC-type resistance protein": "acquired",
+    "Drugs|VanA-type accessory protein": "acquired",
+    "Drugs|VanB-type accessory protein": "acquired",
+    "Drugs|VanC-type accessory protein": "acquired",
+    "Drugs|VanE-type resistance protein": "acquired",
+    "Drugs|VanL-type resistance protein": "acquired",
+    "Drugs|VanM-type resistance protein": "acquired",
+    "Drugs|VanN-type resistance protein": "acquired",
+    "Drugs|Tunicamycin resistance protein": "environmental"
+  },
+  "amr_host_hints": {
+    "_comment": "Host-range hints for the HTML report ONLY. MEGARes carries no organism column, so these are literature expectations about which organisms typically carry a gene family - NOT evidence from this dataset, and never an input to any verdict. The report renders them as INFERRED and repeats that assembly could not attribute these genes (docs/biothreat_assessment.md 2.5). A hint is shown only when a matching organism is independently present in the same sample. Genus lists were extended 2026-08 for organisms on the CDC/WHO lists that had no coverage: Shigella (genomically Escherichia coli, same plasmid- and integron-borne resistome), Morganella and Providencia (Morganellaceae, same acquired Enterobacterales repertoire), Vibrio on the SXT/R391 ICE cargo genes only (sul2, floR, strAB, aadA, tetA - Jia 2026, doi:10.3389/fmicb.2026.1751786), and Campylobacter on erm(B) and aph(3')-III (Katic 2026, doi:10.1089/fpd.2024.0173). Mycobacteroides was added alongside Mycobacterium after the 2018 genus split, because the report now names the organism Mycobacteroides abscessus.",
+    "MECA": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "mecA sits on SCCmec, a staphylococcal mobile element; it is not found outside the staphylococci and their close relatives."
+    },
+    "MECI": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "mecA sits on SCCmec, a staphylococcal mobile element; it is not found outside the staphylococci and their close relatives."
+    },
+    "BLAZ": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "The blaZ penicillinase operon is staphylococcal, plasmid- or transposon-borne, and near-universal in the genus."
+    },
+    "BLAI": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "The blaZ penicillinase operon is staphylococcal, plasmid- or transposon-borne, and near-universal in the genus."
+    },
+    "BLAR": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "The blaZ penicillinase operon is staphylococcal, plasmid- or transposon-borne, and near-universal in the genus."
+    },
+    "MSRA": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "MPHC": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "LNUA": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "LNUC": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "FUSB": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "TETK": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "TETL": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "VGA": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "DFRC": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "ANT4-PRIME": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "APH2-DPRIME": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "SAT": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "QACEDELTA1": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "MUPA": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "ERMC": {
+      "taxa": [
+        "Staphylococcus",
+        "Mammaliicoccus"
+      ],
+      "basis": "Carried on staphylococcal plasmids and small mobile elements; typical of the genus in skin-flora communities."
+    },
+    "ERMX": {
+      "taxa": [
+        "Corynebacterium",
+        "Cutibacterium",
+        "Mycobacterium",
+        "Mycobacteroides",
+        "Nocardia",
+        "Rothia"
+      ],
+      "basis": "erm(X) and cmx are actinobacterial, usually on transposons in Corynebacterium and relatives."
+    },
+    "CMX": {
+      "taxa": [
+        "Corynebacterium",
+        "Cutibacterium",
+        "Mycobacterium",
+        "Mycobacteroides",
+        "Nocardia",
+        "Rothia"
+      ],
+      "basis": "erm(X) and cmx are actinobacterial, usually on transposons in Corynebacterium and relatives."
+    },
+    "ERM": {
+      "taxa": [
+        "Streptococcus",
+        "Enterococcus",
+        "Bacteroides",
+        "Prevotella",
+        "Staphylococcus",
+        "Clostridium"
+      ],
+      "basis": "erm(B) is broad-host Gram-positive; erm(F) is anaerobe-associated (Bacteroides, Prevotella)."
+    },
+    "ERMB": {
+      "taxa": [
+        "Streptococcus",
+        "Enterococcus",
+        "Bacteroides",
+        "Prevotella",
+        "Staphylococcus",
+        "Clostridium",
+        "Campylobacter"
+      ],
+      "basis": "erm(B) is broad-host Gram-positive; erm(F) is anaerobe-associated (Bacteroides, Prevotella)."
+    },
+    "ERMF": {
+      "taxa": [
+        "Streptococcus",
+        "Enterococcus",
+        "Bacteroides",
+        "Prevotella",
+        "Staphylococcus",
+        "Clostridium"
+      ],
+      "basis": "erm(B) is broad-host Gram-positive; erm(F) is anaerobe-associated (Bacteroides, Prevotella)."
+    },
+    "CTX": {
+      "taxa": [
+        "Escherichia",
+        "Klebsiella",
+        "Salmonella",
+        "Enterobacter",
+        "Citrobacter",
+        "Serratia",
+        "Proteus",
+        "Acinetobacter",
+        "Pseudomonas",
+        "Stenotrophomonas",
+        "Shigella",
+        "Morganella",
+        "Providencia"
+      ],
+      "basis": "Gram-negative plasmid and class 1 integron cassettes; the usual hosts are Enterobacteriaceae, Acinetobacter and Pseudomonas."
+    },
+    "BLAA": {
+      "taxa": [
+        "Escherichia",
+        "Klebsiella",
+        "Salmonella",
+        "Enterobacter",
+        "Citrobacter",
+        "Serratia",
+        "Proteus",
+        "Acinetobacter",
+        "Pseudomonas",
+        "Stenotrophomonas",
+        "Shigella",
+        "Morganella",
+        "Providencia"
+      ],
+      "basis": "Gram-negative plasmid and class 1 integron cassettes; the usual hosts are Enterobacteriaceae, Acinetobacter and Pseudomonas."
+    },
+    "CARB": {
+      "taxa": [
+        "Escherichia",
+        "Klebsiella",
+        "Salmonella",
+        "Enterobacter",
+        "Citrobacter",
+        "Serratia",
+        "Proteus",
+        "Acinetobacter",
+        "Pseudomonas",
+        "Stenotrophomonas",
+        "Shigella",
+        "Morganella",
+        "Providencia"
+      ],
+      "basis": "Gram-negative plasmid and class 1 integron cassettes; the usual hosts are Enterobacteriaceae, Acinetobacter and Pseudomonas."
+    },
+    "BLASGM": {
+      "taxa": [
+        "Escherichia",
+        "Klebsiella",
+        "Salmonella",
+        "Enterobacter",
+        "Citrobacter",
+        "Serratia",
+        "Proteus",
+        "Acinetobacter",
+        "Pseudomonas",
+        "Stenotrophomonas",
+        "Shigella",
+        "Morganella",
+        "Providencia"
+      ],
+      "basis": "Gram-negative plasmid and class 1 integron cassettes; the usual hosts are Enterobacteriaceae, Acinetobacter and Pseudomonas."
+    },
+    "SULII": {
+      "taxa": [
+        "Escherichia",
+        "Klebsiella",
+        "Salmonella",
+        "Enterobacter",
+        "Citrobacter",
+        "Serratia",
+        "Proteus",
+        "Acinetobacter",
+        "Pseudomonas",
+        "Stenotrophomonas",
+        "Shigella",
+        "Morganella",
+        "Providencia",
+        "Vibrio"
+      ],
+      "basis": "Gram-negative plasmid and class 1 integron cassettes; the usual hosts are Enterobacteriaceae, Acinetobacter and Pseudomonas."
+    },
+    "ANT3-DPRIME": {
+      "taxa": [
+        "Escherichia",
+        "Klebsiella",
+        "Salmonella",
+        "Enterobacter",
+        "Citrobacter",
+        "Serratia",
+        "Proteus",
+        "Acinetobacter",
+        "Pseudomonas",
+        "Stenotrophomonas",
+        "Shigella",
+        "Morganella",
+        "Providencia",
+        "Vibrio"
+      ],
+      "basis": "Gram-negative plasmid and class 1 integron cassettes; the usual hosts are Enterobacteriaceae, Acinetobacter and Pseudomonas."
+    },
+    "APH6": {
+      "taxa": [
+        "Escherichia",
+        "Klebsiella",
+        "Salmonella",
+        "Enterobacter",
+        "Citrobacter",
+        "Serratia",
+        "Proteus",
+        "Acinetobacter",
+        "Pseudomonas",
+        "Stenotrophomonas",
+        "Shigella",
+        "Morganella",
+        "Providencia",
+        "Vibrio"
+      ],
+      "basis": "Gram-negative plasmid and class 1 integron cassettes; the usual hosts are Enterobacteriaceae, Acinetobacter and Pseudomonas."
+    },
+    "TETA": {
+      "taxa": [
+        "Escherichia",
+        "Klebsiella",
+        "Salmonella",
+        "Enterobacter",
+        "Citrobacter",
+        "Serratia",
+        "Proteus",
+        "Acinetobacter",
+        "Pseudomonas",
+        "Stenotrophomonas",
+        "Shigella",
+        "Morganella",
+        "Providencia",
+        "Vibrio"
+      ],
+      "basis": "Gram-negative plasmid and class 1 integron cassettes; the usual hosts are Enterobacteriaceae, Acinetobacter and Pseudomonas."
+    },
+    "CATA": {
+      "taxa": [
+        "Escherichia",
+        "Klebsiella",
+        "Salmonella",
+        "Enterobacter",
+        "Citrobacter",
+        "Serratia",
+        "Proteus",
+        "Acinetobacter",
+        "Pseudomonas",
+        "Stenotrophomonas",
+        "Shigella",
+        "Morganella",
+        "Providencia",
+        "Vibrio"
+      ],
+      "basis": "Gram-negative plasmid and class 1 integron cassettes; the usual hosts are Enterobacteriaceae, Acinetobacter and Pseudomonas."
+    },
+    "TET39": {
+      "taxa": [
+        "Escherichia",
+        "Klebsiella",
+        "Salmonella",
+        "Enterobacter",
+        "Citrobacter",
+        "Serratia",
+        "Proteus",
+        "Acinetobacter",
+        "Pseudomonas",
+        "Stenotrophomonas",
+        "Shigella",
+        "Morganella",
+        "Providencia"
+      ],
+      "basis": "Gram-negative plasmid and class 1 integron cassettes; the usual hosts are Enterobacteriaceae, Acinetobacter and Pseudomonas."
+    },
+    "ADEL": {
+      "taxa": [
+        "Acinetobacter"
+      ],
+      "basis": "AdeIJK/AdeFGH/AdeABC regulators are chromosomal in Acinetobacter baumannii and its close relatives; they do not occur elsewhere."
+    },
+    "ADEN": {
+      "taxa": [
+        "Acinetobacter"
+      ],
+      "basis": "AdeIJK/AdeFGH/AdeABC regulators are chromosomal in Acinetobacter baumannii and its close relatives; they do not occur elsewhere."
+    },
+    "ADES": {
+      "taxa": [
+        "Acinetobacter"
+      ],
+      "basis": "AdeIJK/AdeFGH/AdeABC regulators are chromosomal in Acinetobacter baumannii and its close relatives; they do not occur elsewhere."
+    },
+    "MEXT": {
+      "taxa": [
+        "Pseudomonas"
+      ],
+      "basis": "MexT regulates MexEF-OprN, chromosomal in Pseudomonas aeruginosa."
+    },
+    "AAC6-PRIME": {
+      "taxa": [
+        "Enterococcus",
+        "Acinetobacter",
+        "Escherichia",
+        "Klebsiella",
+        "Serratia",
+        "Staphylococcus"
+      ],
+      "basis": "aac(6') is broad: acquired in Enterobacteriaceae and staphylococci, but chromosomal and INTRINSIC in Enterococcus faecium and several Acinetobacter species - presence alone is uninformative when those hosts are present."
+    },
+    "APH3-DPRIME": {
+      "taxa": [
+        "Staphylococcus",
+        "Enterococcus",
+        "Escherichia",
+        "Klebsiella",
+        "Acinetobacter",
+        "Campylobacter"
+      ],
+      "basis": "aph(3'')-Ib/strA is transposon-borne across Gram-positives and Gram-negatives alike."
+    },
+    "FOSA": {
+      "taxa": [
+        "Pseudomonas",
+        "Escherichia",
+        "Klebsiella",
+        "Enterobacter",
+        "Serratia"
+      ],
+      "basis": "fosA is chromosomal and intrinsic in Pseudomonas aeruginosa and most Enterobacteriaceae; detection is expected wherever those organisms are present."
+    },
+    "ICR": {
+      "taxa": [
+        "Escherichia",
+        "Klebsiella",
+        "Salmonella",
+        "Acinetobacter",
+        "Moraxella"
+      ],
+      "basis": "Colistin phosphoethanolamine transferases (mcr-like) are Gram-negative; note that chromosomal homologues in Moraxellaceae are the usual source of a hit in environmental samples."
+    },
+    "BLE": {
+      "taxa": [
+        "Staphylococcus",
+        "Escherichia",
+        "Klebsiella"
+      ],
+      "basis": "Bleomycin resistance protein travels with Tn5-family transposons in both Gram groups."
+    },
+    "TETA46": {
+      "taxa": [
+        "Streptococcus",
+        "Enterococcus",
+        "Staphylococcus"
+      ],
+      "basis": "tet(46) is a Gram-positive ABC efflux determinant."
+    }
+  },
+  "clinical_watchlist": {
+    "_comment": "Clinically serious organisms that are NOT CDC bioterrorism agents. Built because the threat_list is exclusively CDC A/B/C, so A. baumannii - the most operationally important organism in this project - could never exceed MONITOR. Sources: WHO Bacterial Priority Pathogens List and the ESKAPE group. CEILING IS 'CONFIRM', NEVER 'ESCALATE': escalation stays reserved for a CDC threat agent with its confirmatory marker. A watchlist organism reaches CONFIRM only when it is enriched in this sample AND an acquired resistance gene of a listed class is present in the same sample and this genus is one of its documented hosts. That is CO-LOCATION, NOT CO-ATTRIBUTION - MEGARes has no organism column (docs/biothreat_assessment.md 2.5) - and CONFIRM means 'culture with AST', which is the correct action either way.",
+    "Acinetobacter baumannii": {
+      "priority": "WHO critical",
+      "escalating_classes": [
+        "betalactams",
+        "Aminoglycosides",
+        "Fluoroquinolones",
+        "Lipopeptides"
+      ],
+      "note": "Carbapenem-resistant A. baumannii is WHO critical priority and a leading cause of hospital outbreaks. Lipopeptide genes are listed because colistin is the last-line agent.",
+      "taxid": "470"
+    },
+    "Pseudomonas aeruginosa": {
+      "priority": "WHO critical",
+      "escalating_classes": [
+        "betalactams",
+        "Aminoglycosides",
+        "Fluoroquinolones",
+        "Lipopeptides"
+      ],
+      "note": "Carbapenem-resistant P. aeruginosa, WHO critical priority.",
+      "taxid": "287"
+    },
+    "Klebsiella pneumoniae": {
+      "priority": "WHO critical",
+      "escalating_classes": [
+        "betalactams",
+        "Aminoglycosides",
+        "Fluoroquinolones",
+        "Lipopeptides"
+      ],
+      "note": "Carbapenem- and ESBL-producing Enterobacterales, WHO critical priority.",
+      "taxid": "573"
+    },
+    "Klebsiella oxytoca": {
+      "priority": "WHO critical",
+      "escalating_classes": [
+        "betalactams",
+        "Aminoglycosides",
+        "Fluoroquinolones"
+      ],
+      "note": "Enterobacterales, as K. pneumoniae.",
+      "taxid": "571"
+    },
+    "Klebsiella aerogenes": {
+      "priority": "WHO critical",
+      "escalating_classes": [
+        "betalactams",
+        "Aminoglycosides",
+        "Fluoroquinolones"
+      ],
+      "note": "Enterobacterales, as K. pneumoniae.",
+      "taxid": "548"
+    },
+    "Enterobacter cloacae": {
+      "priority": "WHO critical",
+      "escalating_classes": [
+        "betalactams",
+        "Aminoglycosides",
+        "Fluoroquinolones"
+      ],
+      "note": "ESKAPE Enterobacterales, AmpC and carbapenemase host.",
+      "taxid": "550"
+    },
+    "Enterobacter hormaechei": {
+      "priority": "WHO critical",
+      "escalating_classes": [
+        "betalactams",
+        "Aminoglycosides",
+        "Fluoroquinolones"
+      ],
+      "note": "Enterobacter cloacae complex.",
+      "taxid": "158836"
+    },
+    "Citrobacter freundii": {
+      "priority": "WHO critical",
+      "escalating_classes": [
+        "betalactams",
+        "Aminoglycosides",
+        "Fluoroquinolones"
+      ],
+      "note": "Enterobacterales, chromosomal AmpC.",
+      "taxid": "546"
+    },
+    "Serratia marcescens": {
+      "priority": "WHO critical",
+      "escalating_classes": [
+        "betalactams",
+        "Aminoglycosides",
+        "Fluoroquinolones"
+      ],
+      "note": "Enterobacterales, hospital-associated.",
+      "taxid": "615"
+    },
+    "Proteus mirabilis": {
+      "priority": "WHO critical",
+      "escalating_classes": [
+        "betalactams",
+        "Aminoglycosides",
+        "Fluoroquinolones"
+      ],
+      "note": "Enterobacterales.",
+      "taxid": "584"
+    },
+    "Morganella morganii": {
+      "priority": "WHO critical",
+      "escalating_classes": [
+        "betalactams",
+        "Aminoglycosides",
+        "Fluoroquinolones"
+      ],
+      "note": "Enterobacterales.",
+      "taxid": "582"
+    },
+    "Providencia rettgeri": {
+      "priority": "WHO critical",
+      "escalating_classes": [
+        "betalactams",
+        "Aminoglycosides",
+        "Fluoroquinolones"
+      ],
+      "note": "Enterobacterales, carbapenemase host.",
+      "taxid": "587"
+    },
+    "Enterococcus faecium": {
+      "priority": "WHO high",
+      "escalating_classes": [
+        "Glycopeptides",
+        "betalactams",
+        "Aminoglycosides"
+      ],
+      "note": "Vancomycin-resistant E. faecium, WHO high priority. Glycopeptide genes are the escalating signal; note aac(6')-Ii is INTRINSIC in this species and must not be read as acquired.",
+      "taxid": "1352"
+    },
+    "Enterococcus faecalis": {
+      "priority": "WHO high",
+      "escalating_classes": [
+        "Glycopeptides",
+        "Aminoglycosides"
+      ],
+      "note": "Vancomycin-resistant enterococci. Same aac(6') intrinsic caveat as E. faecium.",
+      "taxid": "1351"
+    },
+    "Stenotrophomonas maltophilia": {
+      "priority": "WHO medium",
+      "escalating_classes": [
+        "betalactams",
+        "Sulfonamides"
+      ],
+      "note": "Intrinsically multi-resistant opportunist; co-trimoxazole is the mainstay, so sulfonamide genes matter.",
+      "taxid": "40324"
+    },
+    "Streptococcus pneumoniae": {
+      "priority": "WHO medium",
+      "escalating_classes": [
+        "betalactams",
+        "MLS",
+        "Fluoroquinolones"
+      ],
+      "note": "Penicillin-non-susceptible S. pneumoniae, WHO medium priority.",
+      "taxid": "1313"
+    },
+    "Haemophilus influenzae": {
+      "priority": "WHO medium",
+      "escalating_classes": [
+        "betalactams"
+      ],
+      "note": "Ampicillin-resistant H. influenzae.",
+      "taxid": "727"
+    },
+    "Neisseria gonorrhoeae": {
+      "priority": "WHO high",
+      "escalating_classes": [
+        "betalactams",
+        "MLS",
+        "Fluoroquinolones"
+      ],
+      "note": "Third-generation cephalosporin-resistant N. gonorrhoeae, WHO high priority.",
+      "taxid": "485"
+    },
+    "Campylobacter jejuni": {
+      "priority": "WHO high",
+      "escalating_classes": [
+        "Fluoroquinolones",
+        "MLS"
+      ],
+      "note": "Fluoroquinolone-resistant Campylobacter, WHO high priority.",
+      "taxid": "197"
+    },
+    "Helicobacter pylori": {
+      "priority": "WHO high",
+      "escalating_classes": [
+        "MLS",
+        "Fluoroquinolones"
+      ],
+      "note": "Clarithromycin-resistant H. pylori, WHO high priority.",
+      "taxid": "210",
+      "amr_expectation": "Clinically important resistance in H. pylori is point-mutational, not acquired: 23S rRNA for clarithromycin, gyrA for levofloxacin, rdxA for metronidazole (Matei 2026, doi:10.3390/antibiotics15070661). MEGARes acquired-gene groups are the wrong instrument for this organism; the point_mutation class is suppressed by design."
+    },
+    "Candida auris": {
+      "priority": "WHO critical (fungal)",
+      "escalating_classes": [],
+      "note": "WHO fungal priority pathogen, critical group. Species identification alone warrants culture; MEGARes does not cover antifungals, so no escalating class applies.",
+      "taxid": "498019"
+    },
+    "Candida albicans": {
+      "priority": "WHO critical (fungal)",
+      "escalating_classes": [],
+      "note": "WHO fungal priority pathogen, critical group. No antifungal coverage in MEGARes.",
+      "taxid": "5476"
+    },
+    "Candida haemulonii": {
+      "priority": "WHO (fungal)",
+      "escalating_classes": [],
+      "note": "C. auris near-neighbour in the C. haemulonii complex; misidentification between them is well documented, so the call is worth a look on its own.",
+      "taxid": "45357"
+    },
+    "Mycobacterium abscessus": {
+      "priority": "WHO (mycobacterial)",
+      "escalating_classes": [
+        "MLS",
+        "Aminoglycosides"
+      ],
+      "note": "Rapidly growing non-tuberculous mycobacterium, difficult to treat.",
+      "taxid": "36809"
+    }
   }
 }

@@ -1,0 +1,6 @@
+flowchart LR
+    A["Swab a surface"] --> B["Extract all DNA"]
+    B --> C["Sequence everything<br/>no target, no preference"]
+    C --> D["Tens of millions of reads<br/>ACGTTGCA... × 45,000,000"]
+    D --> E["Classifier: match each read<br/>against a reference database"]
+    E --> F["A table: species → read count"]

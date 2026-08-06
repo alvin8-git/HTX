@@ -1,0 +1,32 @@
+flowchart TB
+    subgraph ROW["ROW TIERS &mdash; applied to every organism and every resistance gene"]
+        direction LR
+        E["<b>ESCALATE</b><br/>threat-list agent WITH its<br/>confirmatory marker present<br/><i>the only tier that asserts<br/>a biological threat</i>"]
+        C["<b>CONFIRM</b><br/>real and actionable<br/>'culture with AST'<br/><i>terminal tier for any<br/>AMR gene, always</i>"]
+        M["<b>MONITOR</b><br/>real, not<br/>acutely actionable"]
+        N["<b>NO_ACTION</b><br/>below threshold, kitome,<br/>artifact, intrinsic gene,<br/>or marker absent"]
+        E --- C --- M --- N
+    end
+    subgraph SAMPLE["SAMPLE VERDICT &mdash; one answer for the swab"]
+        direction LR
+        SE["<b>ESCALATE</b><br/>any threat-list<br/>taxon at ESCALATE"]
+        SI["<b>INVESTIGATE</b><br/>any threat-list or watchlist<br/>taxon at CONFIRM, or a<br/>high-consequence acquired<br/>gene (mecA, CTX-M) at CONFIRM"]
+        SM["<b>MONITOR</b><br/>any flagged taxon at MONITOR,<br/>or an ordinary acquired<br/>gene at CONFIRM"]
+        SN["<b>NO ACTION</b><br/>nothing above;<br/>community-context organisms<br/>never contribute"]
+        SE --- SI --- SM --- SN
+    end
+    NT["<b>NOT_TESTED</b> &mdash; deliberately OUTSIDE the ladder &mdash; this assay structurally cannot see it.<br/>Never comparable to, and never downgradable into, NO_ACTION"]
+    ROW ==>|"rolled up"| SAMPLE
+    ROW -.-|"never rolls up"| NT
+    classDef esc fill:#f8d7da,stroke:#a94442,color:#4a1114
+    classDef con fill:#fde3cf,stroke:#c05621,color:#4a2410
+    classDef mon fill:#fcf3cf,stroke:#b7950b,color:#4d3f04
+    classDef nact fill:#eeeeee,stroke:#999999,color:#333333
+    classDef out fill:#e8e4f3,stroke:#5b4b8a,color:#241a3d,stroke-dasharray:5 4
+    class E,SE esc
+    class C,SI con
+    class M,SM mon
+    class N,SN nact
+    class NT out
+    style ROW fill:#ffffff,stroke:#bbbbbb,color:#333333
+    style SAMPLE fill:#ffffff,stroke:#bbbbbb,color:#333333

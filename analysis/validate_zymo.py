@@ -104,7 +104,7 @@ def main():
     for s, n in zip(SAMPLES, short):
         g = reports[s]
         genes = triage.triage_genes(g)
-        taxa = triage.triage_taxa(s, g, loads, {x['group'] for x in genes})
+        taxa = triage.triage_taxa(s, g, loads, genes)
         threat = [t for t in taxa if t['tier'] != '-']
         conf = [x for x in genes if x['verdict'] == 'CONFIRM']
         esc = [t for t in taxa if t['verdict'] == 'ESCALATE']

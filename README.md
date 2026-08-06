@@ -31,9 +31,12 @@ Full analysis: **[`docs/biothreat_assessment.md`](docs/biothreat_assessment.md)*
 | [`docs/active_species_and_gene_logic.md`](docs/active_species_and_gene_logic.md) | Explanation | What "active species" means, and what AMR/virulence genes actually decide. |
 | [`docs/automated_triage_design.md`](docs/automated_triage_design.md) | Explanation | Can a novel sample be triaged automatically, without an LLM? |
 | [`docs/reference_triage.md`](docs/reference_triage.md) | Reference | Every threshold, rule-file field and function in the triage engine. |
+| [`docs/reference_rules.md`](docs/reference_rules.md) | Reference | Generated — every threat agent, watchlist organism, marker and threshold as tables. |
+| [`docs/pfidb_v5_comparison.md`](docs/pfidb_v5_comparison.md) | Reference | PFIDB v5.0 vs the kingdom-split lists, and the three WHO organisms that could never fire. |
 | [`docs/howto_triage_new_sample.md`](docs/howto_triage_new_sample.md) | How-to | Run the engine on a report you have never seen. |
 | [`docs/triage_prototype_results.md`](docs/triage_prototype_results.md) | Reference | Where the engine agrees and disagrees with the manual analysis. |
 | [`docs/zymo_validation.md`](docs/zymo_validation.md) | Reference | Measured sensitivity, specificity and quantitation against a certified standard. |
+| [`docs/stool_sms_longread_run.md`](docs/stool_sms_longread_run.md) | Reference | A long-read stool batch, the five defects it exposed, and what each fix changed. |
 | [`docs/references.md`](docs/references.md) | Reference | Literature citations, verified against Europe PMC. |
 | [`docs/claude_automation_recommendations.md`](docs/claude_automation_recommendations.md) | Explanation | Suggested Claude Code automations for this repo. Advisory; none implemented. |
 
@@ -119,6 +122,7 @@ python3 analysis/check_fastq_integrity.py  # full-decompression check of every W
 python3 analysis/build_deck.py             # -> HTX_biosurveillance_briefing.pptx
 python3 analysis/triage.py --selftest      # rule checks for the triage engine
 python3 analysis/triage.py                 # -> analysis/triage_WBM<id>.tsv (deterministic triage)
+python3 analysis/triage.py --html          # -> analysis/triage_report.html (evidence report)
 python3 analysis/validate_zymo.py          # triage engine vs the ZymoBIOMICS standard
 ```
 
@@ -162,6 +166,54 @@ tiers, never diagnoses:
 | `MONITOR` | Real, not acutely actionable |
 | `CONFIRM` | Real and actionable — "culture with AST". Terminal tier for any AMR gene. |
 | `ESCALATE` | Threat agent **with its confirmatory marker present** |
+
+Organisms that are clinically serious but not CDC agents — *A. baumannii*, *P. aeruginosa*,
+*K. pneumoniae* and 21 more from the WHO priority list and ESKAPE — sit on a separate
+`clinical_watchlist` whose ceiling is `CONFIRM`. Without it the CDC-only threat list capped
+*A. baumannii*, the most operationally important organism here, at `MONITOR`.
+
+Each run also emits a **sample verdict** (`NO ACTION` / `MONITOR` / `INVESTIGATE` / `ESCALATE`),
+the equivalent of the briefing deck's per-sample call. It agrees with the deck on 3 of 5 samples
+and differs by one step on the other two, both for stated reasons.
+
+### Platform and batch shape
+
+Two things about a batch change what the numbers mean, and both are handled explicitly:
+
+```bash
+python3 analysis/triage.py --independent A B C     # unrelated donors/sites: gate 8 off
+python3 analysis/triage.py --html --out=analysis/batch7.html A B C
+```
+
+**Long reads are auto-detected** from the report's mean read length. At ≥1 kb a single read spans a
+whole gene, so breadth saturates near 100% and one unit of depth is one whole molecule — the
+acquired-gene gates switch from ≥80%/≥5× to **≥95%/≥2×**. The QC tab names the platform it used.
+
+**`--independent`** turns off the cross-sample enrichment gate. It asks "is this taxon enriched
+*here*", which is the right question for swabs from one facility and a meaningless one for four
+stool donors, where normal inter-individual variation reads as 222× enrichment.
+
+Both were driven by a real batch: [`docs/stool_sms_longread_run.md`](docs/stool_sms_longread_run.md).
+
+### Evidence report
+
+```bash
+python3 analysis/triage.py --html          # -> analysis/triage_report.html
+```
+
+A single self-contained HTML file — no network, nothing to install — with a sample switcher and
+four tabs each: **QC**, **Flaggable species**, **Resistance genes**, **Method & verification**.
+Species are banded by severity, `ESCALATE` → `NO_ACTION`, with `NOT_TESTED` held below the ladder
+so it can never be misread as a negative.
+
+The report is a lens on the PFI report, not a replacement: every evidence row carries the
+identifier you would search for in `<sample>_en.html` — `VFG004763(gb|WP_011274497)` for a
+virulence hit, `MEG_2378` for a resistance hit, the taxid for an organism.
+
+Where a species card lists resistance genes, they sit in a dashed box headed **INFERRED, NOT
+MEASURED**. MEGARes has no organism column, so those genes were found in the *sample* and the genus
+is a documented host — nothing more. The host-range claims live in `amr_host_hints` in the rule
+file, each with a stated basis, and they never affect a verdict.
 
 Start with [`docs/howto_triage_new_sample.md`](docs/howto_triage_new_sample.md); full surface in
 [`docs/reference_triage.md`](docs/reference_triage.md).

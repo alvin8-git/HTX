@@ -1,0 +1,11 @@
+flowchart LR
+    T["<b>Type</b><br/>Drugs"] --> C["<b>Class</b><br/>beta-lactams"]
+    C --> M["<b>Mechanism</b><br/>Class A beta-lactamases"]
+    M --> G["<b>GROUP</b><br/>CTX"]
+    G --> A["<b>MEG_ accession</b><br/>MEG_2430"]
+    A --- N["one MEG_ = one reference <b>allele</b>,<br/>not one gene — the engine<br/>collapses alleles to the GROUP<br/>before it calls anything"]
+    classDef note fill:#f4f4f4,stroke:#999,color:#333,font-style:italic
+    classDef key fill:#e8e4f3,stroke:#5b4b8a,color:#241a3d
+    class N note
+    class G key
+    linkStyle 4 stroke-dasharray:4 4,stroke:#999

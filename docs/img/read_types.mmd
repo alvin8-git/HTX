@@ -1,0 +1,11 @@
+flowchart LR
+    R[/"one read"/] --> Q{"is this sequence unique<br/>to one species?"}
+    Q -- yes --> RR["<b>Real Read</b><br/>species-specific<br/><i>conservative — under-counts</i>"]
+    Q -- "no, shared with congeners" --> AMB["ambiguous read"]
+    AMB --> BR["Bracken redistributes it<br/>in proportion to the<br/>species already seen"]
+    RR --> ER["<b>Estimate Read</b> = Real Read + modelled share<br/><i>complete — can badly over-count at trace level</i>"]
+    BR --> ER
+    classDef good fill:#dff0d8,stroke:#3c763d,color:#1b3a1f
+    classDef warn fill:#fcf3cf,stroke:#b7950b,color:#4d3f04
+    class RR good
+    class ER warn

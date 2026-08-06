@@ -1,0 +1,15 @@
+flowchart TB
+    G["<b>group override</b><br/>116 hand-written entries<br/><i>host-specific knowledge</i>"]
+    M["<b>mechanism map</b><br/>131 'Type | Mechanism' pairs,<br/>spanning all 397 groups"]
+    K["<b>keyword fallback</b><br/>ordered regex list on the mechanism string"]
+    U["<b>unannotated &rarr; MONITOR</b><br/>and the run reports how many still need a rule"]
+    G -->|miss| M
+    M -->|miss| K
+    K -->|miss| U
+    G -.->|hit| OUT["class assigned"]
+    M -.->|hit| OUT
+    K -.->|hit| OUT
+    classDef hit fill:#dff0d8,stroke:#3c763d,color:#1b3a1f
+    classDef gap fill:#fcf3cf,stroke:#b7950b,color:#4d3f04
+    class OUT hit
+    class U gap

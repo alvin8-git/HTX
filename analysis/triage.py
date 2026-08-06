@@ -124,14 +124,24 @@ def enrichment(loads, taxon, sample):
 
 # ---------------------------------------------------------------- markers
 
-def marker_present(g, marker):
-    """Search the VFDB table for a marker's pattern. Returns (found, evidence)."""
+def marker_present(g, marker, taxon=None):
+    """Search the VFDB table for a marker's pattern. Returns (found, evidence).
+
+    `taxon` restricts the search to rows whose VFDB reference strain shares the taxon's genus, and
+    it matters more than it looks. VFDB names Type VI secretion components `icmF/tssM`,
+    `dotU/tssL`, `vasK/icmF` — homologues of the Coxiella Dot/Icm T4BSS carried by ordinary
+    Pseudomonas and Acinetobacter. Unrestricted, a Coxiella marker would have fired on three of the
+    five HTX swabs, on genes belonging to organisms that are not Coxiella.
+    """
     pat = re.compile(RULES['marker_patterns'].get(marker, re.escape(marker)), re.I)
+    genus = taxon.split(' ')[0].lower() if taxon else None
     vf = g.get('virulence', {}).get('DNA', {})
     rows = vf.get('data', []) if isinstance(vf, dict) else []
     for r in rows:
+        if genus and str(r.get('Pathogen', '')).split(' ')[0].lower() != genus:
+            continue
         if pat.search(json.dumps(r)):
-            return True, str(r.get('Gene', r))[:40]
+            return True, str(r.get('Virulence Factor') or r.get('Gene') or '?')[:40]
     return False, ''
 
 
@@ -176,17 +186,38 @@ def annotate_group(group, type_, mechanism):
                                             f'({type_}) matched nothing. Add it to the rule file.'}
 
 
-def gene_thresholds(group, cls):
-    """Resolve thresholds: group override -> class default -> global default."""
+def detect_platform(g):
+    """'long' or 'short', from the mean read length the report already carries.
+
+    Not cosmetic: breadth and depth mean different things per platform. A 7 kb read spans a 1 kb
+    gene end to end, so breadth saturates at 100% and stops discriminating, while one unit of depth
+    is one whole molecule rather than a thin pileup of fragments.
+    """
+    q = (g.get('basicSummary', {}).get('readsQc', {}).get('data') or [{}])[0]
+    for k in ('Mean_read_length', 'Read_Length'):
+        try:
+            if float(str(q.get(k, '')).replace(',', '')) >= TH['long_read_length_bp']:
+                return 'long'
+        except (TypeError, ValueError):
+            continue
+    return 'short'
+
+
+def gene_thresholds(group, cls, platform='short'):
+    """Resolve thresholds: group override -> platform override -> class default -> global default."""
     t = dict(RULES['class_thresholds'].get('_default', {}))
     t.update(RULES['class_thresholds'].get(cls, {}))
+    if platform == 'long':
+        t.update({k: v for k, v in RULES['long_read_thresholds'].get(cls, {}).items()
+                  if k not in ('why', '_comment')})
     t.update({k: v for k, v in RULES['group_thresholds'].get(group, {}).items()
               if k not in ('why', '_comment')})
     return t
 
 
-def triage_genes(g):
+def triage_genes(g, platform=None):
     """Collapse MEGARes alleles to one call per Group, then classify. Returns list of dicts."""
+    platform = platform or detect_platform(g)
     rows = g.get('drugResistance', {}).get('DNA', {}).get('data', [])
     by_group = collections.defaultdict(list)
     for r in rows:
@@ -204,7 +235,7 @@ def triage_genes(g):
 
         # gate 4: breadth separates a real gene from a conserved fragment.
         if breadth < TH['gene_breadth_floor']:
-            verdict, why = 'NO_ACTION', f'breadth {breadth:.1f}% below floor'
+            verdict, why = 'NO_ACTION', f'breadth {breadth:.2f}% below floor'
         elif cls in ('rrna_conserved', 'efflux_ubiquitous', 'point_mutation', 'core_essential',
                      'intrinsic', 'environmental'):
             verdict, why = 'NO_ACTION', f'{cls}: presence is the default state'
@@ -217,59 +248,257 @@ def triage_genes(g):
                 # prove overexpression - it names the gene worth sequencing deeper. Surfacing this
                 # is the difference between "intrinsic pump, ignore" and "here is the testable one".
                 verdict = 'MONITOR'
-                why = (f'repressor of {need or "its operon"}, present at {breadth:.1f}%/{depth:.2f}x - '
+                why = (f'repressor of {need or "its operon"}, present at {breadth:.2f}%/{depth:.2f}x - '
                        'loss-of-function here is the resistance mechanism; target for variant calling')
             else:
                 verdict, why = 'NO_ACTION', f'regulator; partner {need} present'
         elif cls == 'acquired':
-            t = gene_thresholds(grp, cls)
+            t = gene_thresholds(grp, cls, platform)
             # Host is never attributable from this data, so an acquired gene caps at CONFIRM.
             if breadth >= t['breadth'] and depth >= t['depth']:
                 verdict = 'CONFIRM'
-                why = f'acquired, full length: breadth {breadth:.1f}% depth {depth:.2f}x'
+                why = f'acquired, full length: breadth {breadth:.2f}% depth {depth:.2f}x'
             elif depth >= t.get('partial_depth', 1e9) and breadth >= t.get('partial_breadth', 1e9):
                 # Depth is reported over covered bases, so high depth on a fragment means the gene
                 # is really there and well sequenced - only the allele is uncertain.
                 verdict = 'CONFIRM'
-                why = (f'acquired, PARTIAL: {breadth:.1f}% of the reference allele at {depth:.2f}x '
+                why = (f'acquired, PARTIAL: {breadth:.2f}% of the reference allele at {depth:.2f}x '
                        f'- gene family established, specific allele not')
             else:
                 verdict = 'MONITOR'
-                why = (f'acquired, breadth {breadth:.1f}% depth {depth:.2f}x - below '
+                why = (f'acquired, breadth {breadth:.2f}% depth {depth:.2f}x - below '
                        f'{t["breadth"]:.0f}%/{t["depth"]:.0f}x and the partial route')
         else:
             verdict, why = 'MONITOR', 'unannotated group - needs a rule'
 
         out.append({'group': grp, 'allele': best['Gene'], 'alleles_collapsed': len(alleles),
-                    'breadth': breadth, 'depth': depth, 'class': cls,
+                    'breadth': breadth, 'depth': depth, 'class': cls, 'platform': platform,
+                    'drug_class': best.get('Class', ''), 'mechanism': best.get('Mechanism', ''),
+                    'high_consequence': bool(ann.get('high_consequence')),
                     'verdict': verdict, 'why': why, 'note': ann['note']})
     return sorted(out, key=lambda r: (-TIERS.index(r['verdict']), -r['breadth']))
 
 
 # ---------------------------------------------------------------- gates 1,2,7,9,10,11: taxa
 
-def triage_taxa(sample, g, loads, genes_by_group, comparators=True):
+def watchlist_escalation(name, w, genes):
+    """Does a watchlist organism have supporting resistance context in the same sample?
+
+    Returns (gene, basis) or None. This is CO-LOCATION, NOT CO-ATTRIBUTION: the gene is in the
+    sample, this genus is a documented host for it, and MEGARes cannot say whose it is. The verdict
+    it raises is CONFIRM — "culture with AST" — which is the right action whether or not the gene
+    turns out to belong to this organism. It can never raise ESCALATE.
+    """
+    hints = RULES.get('amr_host_hints', {})
+    genus = name.split()[0]
+    for x in genes:
+        if x['verdict'] != 'CONFIRM' or x['class'] != 'acquired':
+            continue
+        if x.get('drug_class') not in w['escalating_classes']:
+            continue
+        h = hints.get(x['group'])
+        if h and any(genus.startswith(t) or t.startswith(genus) for t in h['taxa']):
+            return x, h['basis']
+    return None
+
+
+def genus_amr_context(name, genes, present):
+    """Resistance genes in this sample whose documented host range covers THIS taxon's genus,
+    each with the competing candidate hosts in the same sample ranked by read count.
+
+    This is the honest half of a question the assay cannot answer. MEGARes has no organism
+    column, so `blaZ` is a fact about the sample, not about *Staphylococcus aureus*. What the
+    rule file does know is which genera carry the gene (`amr_host_hints`); what the species
+    table knows is which of those genera are actually here and how abundant each is. Setting
+    the two side by side is what lets a human see that in WBM179 the blaZ sits in a sample
+    where *S. epidermidis* outnumbers *S. aureus* 38x — evidence about attribution, without
+    ever asserting one.
+
+    Returns a list of dicts, most-confident gene first. NEVER changes a verdict: a gene that
+    probably belongs to a congener is not evidence for or against this taxon's own call.
+    """
+    hints = {k: v for k, v in RULES.get('amr_host_hints', {}).items() if k != '_comment'}
+    genus = name.split()[0]
+    mine = present.get(name, 0)
+    out = []
+    for x in genes:
+        h = hints.get(x['group'])
+        if not h or not any(genus.startswith(t) or t.startswith(genus) for t in h['taxa']):
+            continue
+        cands = sorted(((n, c) for n, c in present.items()
+                        if any(n.startswith(t + ' ') for t in h['taxa']) and c),
+                       key=lambda kv: -kv[1])
+        top, top_reads = cands[0] if cands else (name, mine)
+        rank = next((i + 1 for i, (n, _c) in enumerate(cands) if n == name), None)
+        # Truncating the list would hide the sharpest fact when this taxon ranks low: in WBM179
+        # S. aureus is 7th of 12 staphylococci. Always carry this taxon into the shown set.
+        shown = cands[:5]
+        if rank and rank > len(shown):
+            shown = shown + [(name, mine)]
+        out.append({'group': x['group'], 'allele': x['allele'], 'verdict': x['verdict'],
+                    'class': x['class'], 'breadth': x['breadth'], 'depth': x['depth'],
+                    'gene_why': x['why'], 'basis': h['basis'], 'candidates': shown,
+                    'self_rank': rank, 'n_hosts': len(cands),
+                    'top_host': top, 'top_reads': top_reads,
+                    'ratio': (top_reads / mine) if mine and top != name else None})
+    return sorted(out, key=lambda r: (-TIERS.index(r['verdict']), -r['breadth']))
+
+
+def context_line(name, ctx, present, kind='', entry=None):
+    """One `why` line summarising genus_amr_context. Never None for a listed organism.
+
+    Silence is the failure mode this whole project exists to avoid, so an organism with no
+    matching gene says WHY there is none: viruses and fungi are outside what MEGARes indexes,
+    and a bacterium whose genus is absent from `amr_host_hints` is a coverage limit of the rule
+    file, which is a different statement from "this organism carries no resistance".
+    """
+    genus = name.split()[0]
+    if not ctx:
+        hints = {k: v for k, v in RULES.get('amr_host_hints', {}).items() if k != '_comment'}
+        n_genera = len({t for v in hints.values() for t in v['taxa']})
+        if str(kind).lower().startswith('vir'):
+            return ('AMR CONTEXT: not applicable - MEGARes indexes bacterial resistance genes '
+                    'and this agent is a virus')
+        if str(kind).lower().startswith(('proto', 'metazoa', 'parasit')):
+            return ('AMR CONTEXT: not applicable - MEGARes indexes bacterial resistance genes '
+                    'and this agent is a eukaryotic parasite')
+        if str(kind).lower().startswith('fung'):
+            return ('AMR CONTEXT: not applicable - MEGARes carries no antifungal classes, so no '
+                    'resistance evidence of any kind exists for this organism in this assay')
+        exp = (entry or {}).get('amr_expectation')
+        if exp:
+            return f'AMR CONTEXT: none detected, and none expected - {exp}'
+        known = [g for g, v in hints.items()
+                 if any(genus.startswith(t) or t.startswith(genus) for t in v['taxa'])]
+        if known:
+            # The genus IS curated; nothing from its repertoire turned up here. That is a result.
+            return (f'AMR CONTEXT: none. {len(known)} MEGARes group(s) are documented in {genus} '
+                    f'({", ".join(sorted(known)[:8])}) and none of them was detected in this '
+                    f'sample')
+        return (f'AMR CONTEXT: none. No gene detected here has a documented host range covering '
+                f'{genus}, and {genus} appears in none of the {len(hints)} curated groups '
+                f'({n_genera} genera) - a coverage limit of the rule file, NOT evidence that '
+                f'this organism carries no resistance')
+    groups = ', '.join(x['group'] for x in ctx[:6]) + (' ...' if len(ctx) > 6 else '')
+    best = max(ctx, key=lambda x: x['top_reads'])
+    mine = present.get(name, 0)
+    if best['top_host'] != name and mine:
+        who = (f"the most abundant competing host in the sample is {best['top_host']} at "
+               f"{best['top_reads']:,} reads ({best['top_reads']/mine:.0f}x this taxon), a "
+               f"documented host of {best['group']}")
+    else:
+        who = 'this taxon is the most abundant documented host of any of them in this sample'
+    return (f'AMR CONTEXT: {len(ctx)} gene(s) expected in {genus} co-detected in this sample '
+            f'({groups}); {who} - MEGARes carries no organism column, so none of them is '
+            f'attributed to any species and none of them changed this verdict')
+
+
+def triage_taxa(sample, g, loads, genes, comparators=True):
     """comparators=False when there is nothing to compare against (a single novel sample, or a set
     of replicates of one community). Gate 8 is then inert, and non-threat taxa are reported on read
     count alone. Threat-list gating is unaffected — it never depended on cross-sample context."""
     results = []
     threat, notes = RULES['threat_list'], RULES['taxonomy_notes']
+    watch = {k: v for k, v in RULES.get('clinical_watchlist', {}).items() if k != '_comment'}
+    # Taxid is the primary key. A name string is re-spelled every time a genus moves and the
+    # match is exact, so drift is a silent negative: Candida auris reaches this engine as
+    # '[Candida] auris' from PFIDB v5 and 'Candidozyma auris' from current NCBI - three
+    # spellings, one number (498019). Name lookup stays as the fallback for any report that
+    # does not carry a Taxid column.
+    threat_ids = {v['taxid']: v for v in threat.values()
+                  if isinstance(v, dict) and v.get('taxid')}
+    watch_ids = {v['taxid']: v for v in watch.values() if v.get('taxid')}
+    genes = list(genes) if not isinstance(genes, set) else []
     present = {r['Scientific Name']: int(r['Real Read'])
                for r in g['indentification_DNA']['speciesData']['data']}
 
     for r in g['indentification_DNA']['speciesData']['data']:
         name, real = r['Scientific Name'], int(r['Real Read'])
         est = int(r['Estimate Read'])
-        t = threat.get(name)
+        taxid = str(r.get('Taxid', '')).strip()
+        t = threat_ids.get(taxid) or threat.get(name)
+        w0 = (watch_ids.get(taxid) or watch.get(name)) if not t else None
         why = []
+        # Carried on every exit path so the HTML report can show the evidence behind a verdict
+        # without re-reading the PFI report. Unique fraction is filled in where a gate computed it.
+        base = {'taxon': name, 'taxid': r.get('Taxid', ''), 'real': real, 'est': est,
+                'abundance': str(r.get('Abundance', '')), 'unique': None, 'fold': None,
+                'human_infection': r.get('Human Infection', ''), 'amr_context': []}
+
+        # Sample-wide AMR evidence, pulled into the row of every organism it could plausibly
+        # belong to. Evidence only - the line below is appended before any gate runs and no gate
+        # reads it back, so it can inform a human without moving a verdict.
+        if t or w0:
+            base['amr_context'] = genus_amr_context(name, genes, present)
+            why.append(context_line(name, base['amr_context'], present,
+                                    r.get('Type', ''), t or w0))
 
         # gate 11: emit the reclassification note whatever else happens.
         if name in notes:
             why.append('TAXONOMY: ' + notes[name])
 
-        # gate 2: Bracken redistribution can inflate an estimate far beyond the real reads.
+        # gate 7: Bracken redistribution can inflate an estimate far beyond the real reads.
         if real and est / real > TH['bracken_inflation_ratio']:
             why.append(f'estimate inflated {est/real:.0f}x over {real} real reads - judged on real')
+
+        # gate 1b: clinically serious but not a CDC agent. Without this list the threat_list's
+        # exclusive CDC A/B/C scope caps A. baumannii - the most operationally important organism
+        # in this dataset - at MONITOR, because it is not a bioweapon.
+        w = w0
+        if w:
+            if real < TH['min_real_reads']:
+                continue
+            uf, _n = unique_fraction(sample, name)
+            fold = enrichment(loads, name, sample) if comparators else None
+            base['unique'], base['fold'] = uf, fold
+            why.append(f'{w["priority"]} priority pathogen')
+            if uf is not None and uf < TH['unique_fraction_floor']:
+                results.append({**base, 'tier': 'W', 'verdict': 'NO_ACTION',
+                                'why': '; '.join(why + [f'unique fraction {uf:.0%} - amplification '
+                                                        f'artifact'])})
+                continue
+            # With comparators, enrichment is the evidence that this organism belongs to this site.
+            # Without them it cannot be measured, and defaulting the gate open escalated five
+            # watchlist organisms in WBM232 on one shared aminoglycoside gene. Fall back to a
+            # criterion that IS measurable inside a single sample: substantial abundance.
+            if fold is not None:
+                enriched = fold >= TH['enrichment_fold']
+                bar = ''
+            else:
+                ab = float(str(base['abundance']).rstrip('%') or 0)
+                enriched = ab >= TH['watchlist_min_abundance_no_comparators']
+                bar = (f'no comparator samples, so escalation required abundance '
+                       f'>= {TH["watchlist_min_abundance_no_comparators"]}% instead of enrichment '
+                       f'(this taxon: {ab:.2f}%)')
+            hit = watchlist_escalation(name, w, genes) if enriched else None
+            if fold is None:
+                enr = bar or 'no comparator samples, enrichment untestable'
+            elif fold == float('inf'):
+                enr = 'detected only in this sample'
+            elif fold < 1:
+                enr = (f'not enriched - {fold:.2f}x the load of the sample that carries most of it, '
+                       f'so this is background for the batch')
+            else:
+                enr = f'{fold:.1f}x enriched vs other samples'
+            if hit:
+                gene, basis = hit
+                verdict = 'CONFIRM'
+                why.append(enr)
+                why.append(f'acquired {gene["drug_class"]} resistance in the same sample '
+                           f'({gene["group"]} {gene["allele"]}, {gene["breadth"]:.1f}%/'
+                           f'{gene["depth"]:.2f}x) and this genus is a documented host - '
+                           f'CO-LOCATION, NOT CO-ATTRIBUTION; culture with AST to establish linkage')
+            else:
+                verdict = 'MONITOR'
+                why.append(enr)
+                why.append('no co-located acquired resistance of a listed class'
+                           if enriched else 'not enriched, so no escalation was attempted')
+            if uf is not None:
+                why.append(f'unique fraction {uf:.0%}')
+            results.append({**base, 'tier': 'W', 'verdict': verdict,
+                            'watch_priority': w['priority'], 'watch_note': w['note'],
+                            'why': '; '.join(why)})
+            continue
 
         if not t:
             # Non-threat taxa are only worth reporting when site-specific and substantial.
@@ -283,8 +512,9 @@ def triage_taxa(sample, g, loads, genes_by_group, comparators=True):
             elif genus in RULES['kitome_genera']:
                 continue                          # no enrichment test available: fall back to the list
             uf, n = unique_fraction(sample, name)
+            base['unique'], base['fold'] = uf, fold
             if uf is not None and uf < TH['unique_fraction_floor']:
-                results.append({'taxon': name, 'tier': '-', 'real': real, 'verdict': 'NO_ACTION',
+                results.append({**base, 'tier': '-', 'verdict': 'NO_ACTION',
                                 'why': f'unique fraction {uf:.0%} of {n} reads - amplification artifact'})
                 continue
             why.append('no comparator samples - reported on read count alone, NOT shown to be '
@@ -293,21 +523,21 @@ def triage_taxa(sample, g, loads, genes_by_group, comparators=True):
                         else 'detected only in this sample'))
             if uf is not None:
                 why.append(f'unique fraction {uf:.0%}')
-            results.append({'taxon': name, 'tier': '-', 'real': real, 'verdict': 'MONITOR',
-                            'why': '; '.join(why)})
+            results.append({**base, 'tier': '-', 'verdict': 'MONITOR', 'why': '; '.join(why)})
             continue
 
         # --- threat-list agent ---
         # gate 2 (assay detectability). Must be decided BEFORE read count: an RNA agent at zero
         # reads is untested, not absent, and must never fall through to NO_ACTION.
         if t['genome'] == 'RNA' and not g.get('showRNA'):
-            results.append({'taxon': name, 'tier': t['tier'], 'real': real, 'verdict': 'NOT_TESTED',
+            results.append({**base, 'tier': t['tier'], 'verdict': 'NOT_TESTED',
                             'why': 'RNA genome, DNA-only library - structurally undetectable'})
             continue
 
         if real < TH['min_real_reads']:
             why.append(f'{real} reads, below min {TH["min_real_reads"]}')
             uf, n = unique_fraction(sample, name)
+            base['unique'] = uf
             if uf is not None:
                 why.append(f'unique fraction {uf:.0%} of {n} reads'
                            + (' - amplification artifact' if uf < TH['unique_fraction_floor'] else ''))
@@ -322,12 +552,10 @@ def triage_taxa(sample, g, loads, genes_by_group, comparators=True):
                            'cross-mapping cannot be excluded')
                 verdict = 'NO_ACTION' if verdict == 'CONFIRM' else verdict
 
-        # gate 10: confirmatory marker. Absent = downgrade, present = escalate.
-        found = []
-        for m in t['markers']:
-            ok, ev = marker_present(g, m)
-            if ok:
-                found.append(f'{m}({ev})')
+        # gate 10a: confirmatory marker. Absent = downgrade, present = escalate. Only for agents
+        # whose marker is unique to them and reliably in VFDB, so that a negative is a real negative.
+        found = [f'{m}({ev})' for m in t['markers']
+                 for ok, ev in [marker_present(g, m, name)] if ok]
         if t['markers']:
             if found:
                 why.append('MARKER PRESENT: ' + ', '.join(found))
@@ -335,18 +563,108 @@ def triage_taxa(sample, g, loads, genes_by_group, comparators=True):
             else:
                 why.append(f'confirmatory marker(s) {"/".join(t["markers"])} ABSENT - downgraded')
                 verdict = 'NO_ACTION' if verdict != 'ESCALATE' else verdict
-        elif t.get('subspecies_required') and verdict == 'CONFIRM':
+
+        if t.get('subspecies_required') and verdict == 'CONFIRM':
             # The species-level call is not the finding: the threat is defined below species and
             # this database cannot go there. Found by the Zymo standard, where the certified
             # laboratory S. enterica strain scored CONFIRM at 12% abundance in all five samples.
             verdict = 'MONITOR'
             why.append(f'species-level identification only - needs {t["subspecies_required"]}')
 
-        results.append({'taxon': name, 'tier': t['tier'], 'real': real,
-                        'verdict': verdict, 'why': '; '.join(why) or 'threat-list agent'})
+        # gate 10b: supporting marker. ONE-WAY. Present escalates; absent changes nothing and says
+        # so. The asymmetry is the point - for these agents VFDB coverage cannot be certified from
+        # the report alone, so treating a miss as an exclusion would let the engine silently clear a
+        # real Category A/B detection. A one-way gate can only ever add evidence.
+        sup = [f'{m}({ev})' for m in t.get('supporting_markers', [])
+               for ok, ev in [marker_present(g, m, name)] if ok]
+        if t.get('supporting_markers') and verdict in ('CONFIRM', 'MONITOR'):
+            if sup:
+                why.append('SUPPORTING MARKER PRESENT: ' + ', '.join(sup)
+                           + ' - in this genus, at this coverage')
+                verdict = 'ESCALATE'
+            else:
+                why.append(f'supporting marker(s) {"/".join(t["supporting_markers"])} searched in '
+                           f'{name.split(" ")[0]} VFDB rows and not found - these escalate when '
+                           'present but absence does NOT exclude the agent, so the call stands')
+        elif not t['markers'] and not t.get('supporting_markers') and verdict == 'CONFIRM':
+            # Neither gate ran. Say so: a silent CONFIRM reads like a marker was checked and found.
+            why.append('no confirmatory or supporting marker defined for this agent - gate 10 did '
+                       'not run, so CONFIRM is the ceiling and the call rests on taxonomy alone')
+
+        results.append({**base, 'tier': t['tier'], 'verdict': verdict,
+                        'markers_found': found + sup, 'markers_required': t['markers'],
+                        'supporting_found': sup,
+                        'supporting_required': t.get('supporting_markers', []),
+                        'why': '; '.join(why) or 'threat-list agent'})
+
+    # An agent this assay cannot see is absent from the species table, so the loop above never
+    # reaches it and the NOT_TESTED warning would reach nobody at all - the exact collapse into
+    # silence the tier exists to prevent. Emit one row per untestable threat-list agent, derived
+    # from the rule file rather than from the data, because the data is what is missing.
+    if not g.get('showRNA'):
+        seen = {r['taxon'] for r in results}
+        for name, t in sorted(threat.items()):
+            if t['genome'] == 'RNA' and name not in seen:
+                results.append({'taxon': name, 'taxid': '', 'real': 0, 'est': 0, 'abundance': '',
+                                'unique': None, 'fold': None, 'human_infection': '',
+                                'tier': t['tier'], 'verdict': 'NOT_TESTED',
+                                'why': 'RNA genome, DNA-only library - structurally undetectable. '
+                                       'Not screened, therefore not excluded.'})
 
     return sorted(results, key=lambda r: (-TIERS.index(r['verdict']) if r['verdict'] in TIERS else 99,
                                           -r['real']))
+
+
+# ---------------------------------------------------------------- sample roll-up
+
+# What to do about the swab, as opposed to about one row. The deck carried a verdict like this per
+# sample and the row-level tiers had no equivalent, so a reader comparing the two saw an apparent
+# downgrade that was really a change of subject.
+SAMPLE_VERDICTS = ['NO ACTION', 'MONITOR', 'INVESTIGATE', 'ESCALATE']
+
+
+def _headline(t):
+    """The clause of a row's reasoning that actually justifies its verdict.
+
+    Taking the first clause picks up the Bracken-inflation note, which is a caveat about a number,
+    not the reason for the tier.
+    """
+    parts = [p.strip() for p in t['why'].split(';') if p.strip()]
+    for want in ('CO-LOCATION', 'MARKER PRESENT', 'enriched', 'only in this sample', 'priority'):
+        for p in parts:
+            if want in p:
+                return p
+    return parts[0] if parts else t['why']
+
+
+def sample_verdict(taxa, genes):
+    """Roll row verdicts up to one verdict for the sample. Returns (verdict, [reasons])."""
+    flagged = [t for t in taxa if t['tier'] != '-']          # threat-list or watchlist only
+    conf = [x for x in genes if x['verdict'] == 'CONFIRM' and x['class'] == 'acquired']
+    hi = [x for x in conf if x.get('high_consequence')]
+    why = []
+
+    esc = [t for t in flagged if t['verdict'] == 'ESCALATE']
+    if esc:
+        return 'ESCALATE', [f'{t["taxon"]}: threat-list agent with its confirmatory marker present'
+                            for t in esc]
+
+    cf = [t for t in flagged if t['verdict'] == 'CONFIRM']
+    why += [f'{t["taxon"]}: {_headline(t)}' for t in cf]
+    why += [f'{x["group"]} ({x["allele"]}) at {x["breadth"]:.1f}%/{x["depth"]:.2f}x - '
+            f'high-consequence acquired resistance' for x in hi]
+    if cf or hi:
+        return 'INVESTIGATE', why
+
+    mon = [t for t in flagged if t['verdict'] == 'MONITOR']
+    why = [f'{t["taxon"]}: {_headline(t)}' for t in mon]
+    if conf:
+        why.append(f'{len(conf)} acquired resistance gene(s) at CONFIRM, none high-consequence '
+                   f'and none attributable to an organism')
+    if mon or conf:
+        return 'MONITOR', why
+    return 'NO ACTION', ['No threat-list or watchlist organism above NO ACTION, and no acquired '
+                         'resistance gene reached CONFIRM.']
 
 
 # ---------------------------------------------------------------- driver
@@ -360,15 +678,20 @@ def run(samples, comparators=None):
     if comparators is None:
         comparators = len(samples) > 1
     if not comparators:
-        print('  [gate 8] single sample - cross-sample enrichment is inert; non-threat taxa are '
+        why = 'single sample' if len(samples) == 1 else 'samples declared independent (--independent)'
+        print(f'  [gate 8] {why} - cross-sample enrichment is inert; non-threat taxa are '
               'reported on read count alone and are NOT shown to be site-specific.')
 
     for s in samples:
         g = reports[s]
         genes = triage_genes(g)
-        taxa = triage_taxa(s, g, loads, {x['group'] for x in genes}, comparators)
+        taxa = triage_taxa(s, g, loads, genes, comparators)
+        sv, sv_why = sample_verdict(taxa, genes)
 
         print(f'\n{"="*100}\n{s}   classified={classified[s]:,}\n{"="*100}')
+        print(f'  SAMPLE VERDICT: {sv}')
+        for r in sv_why[:4]:
+            print(f'      - {r[:110]}')
         for p in integrity[s]:
             print(f'  [integrity] {p}')
 
@@ -405,6 +728,8 @@ def run(samples, comparators=None):
         out = os.path.join(ROOT, 'analysis', f'triage_{s.replace("/", "_")}.tsv')
         with open(out, 'w') as fh:
             fh.write('kind\tverdict\tcdc_tier\tname\tevidence\treason\tnote\n')
+            fh.write(f'sample\t{sv}\t\t{s}\t{classified[s]} classified reads\t'
+                     f'{" | ".join(sv_why)}\t\n')
             for r in taxa:
                 fh.write(f"taxon\t{r['verdict']}\t{r['tier']}\t{r['taxon']}\t{r['real']} reads\t{r['why']}\t\n")
             for r in genes:
@@ -471,12 +796,180 @@ def selftest():
     for k in ('Variola virus', 'Burkholderia pseudomallei', 'Brucella melitensis',
               'Coxiella burnetii', 'Mycobacterium tuberculosis'):
         assert 'subspecies_required' not in tl[k], k
+
+    # --- clinical watchlist -------------------------------------------------------------------
+    wl = {k: v for k, v in RULES['clinical_watchlist'].items() if k != '_comment'}
+    assert 'Acinetobacter baumannii' in wl                 # the organism that motivated the list
+    assert not (set(wl) & set(tl)), 'watchlist and threat list must not overlap'
+
+    # --- taxid keying -------------------------------------------------------------------------
+    # Every listed organism must carry a taxid, and no two may share one: the taxid is what the
+    # engine matches on, so a missing one silently demotes that organism to name matching and a
+    # duplicated one would make two rules collide on the same report row.
+    listed = {**{k: v for k, v in tl.items() if k != '_comment' and isinstance(v, dict)}, **wl}
+    for k, v in listed.items():
+        assert str(v.get('taxid', '')).isdigit(), f'{k} has no taxid - run resolve_taxids.py'
+    ids = [v['taxid'] for v in listed.values()]
+    assert len(ids) == len(set(ids)), 'two rules share a taxid'
+    # A rename must not lose the organism. PFIDB v5 spells this '[Candida] auris', NCBI now says
+    # 'Candidozyma auris', the rule file says 'Candida auris' - all three are taxid 498019.
+    assert wl['Candida auris']['taxid'] == '498019'
+    assert tl['Bacillus anthracis']['taxid'] == '1392'
+    renamed = triage_taxa('selftest', {'indentification_DNA': {'speciesData': {'data': [
+        {'Taxid': '498019', 'Scientific Name': '[Candida] auris', 'Real Read': '900',
+         'Estimate Read': '900'}]}}}, [], {}, comparators=False)
+    assert renamed and renamed[0]['verdict'] != 'NO_ACTION', renamed
+    assert 'WHO critical' in renamed[0]['why'], renamed[0]['why']
+
+    # --- sample-wide AMR evidence, pulled into a species row ------------------------------------
+    # The gene is in the sample; the genus is a documented host; a congener is far more abundant.
+    # All three facts belong in the organism's row, and none of them may move its verdict.
+    sp = {'indentification_DNA': {'speciesData': {'data': [
+        {'Taxid': '1280', 'Scientific Name': 'Staphylococcus aureus', 'Real Read': '1699',
+         'Estimate Read': '6162'},
+        {'Taxid': '1282', 'Scientific Name': 'Staphylococcus epidermidis', 'Real Read': '65238',
+         'Estimate Read': '104545'}]}}}
+    blaz = {'group': 'BLAZ', 'allele': 'MEG_1330', 'verdict': 'MONITOR', 'class': 'acquired',
+            'breadth': 74.91, 'depth': 2.49, 'why': 'acquired', 'drug_class': 'betalactams'}
+    ctx = genus_amr_context('Staphylococcus aureus', [blaz], {'Staphylococcus aureus': 1699,
+                                                              'Staphylococcus epidermidis': 65238})
+    assert len(ctx) == 1 and ctx[0]['top_host'] == 'Staphylococcus epidermidis'
+    assert round(ctx[0]['ratio']) == 38, ctx[0]['ratio']
+    assert ctx[0]['self_rank'] == 2 and ctx[0]['n_hosts'] == 2
+    # ...and the verdict is still driven only by the marker gate.
+    row = next(x for x in triage_taxa('selftest', sp, {}, [blaz], comparators=False)
+               if x['taxon'] == 'Staphylococcus aureus')
+    assert row['verdict'] == 'NO_ACTION' and 'seb ABSENT' in row['why'], row
+    assert 'AMR CONTEXT' in row['why'] and 'BLAZ' in row['why'], row['why']
+    assert 'none of them changed this verdict' in row['why'], row['why']
+    ab = wl['Acinetobacter baumannii']
+    # Escalation needs ALL of: acquired + CONFIRM + a listed drug class + this genus as a host.
+    good = {'group': 'CTX', 'allele': 'MEG_2378', 'verdict': 'CONFIRM', 'class': 'acquired',
+            'drug_class': 'betalactams', 'breadth': 60.6, 'depth': 11.7}
+    assert watchlist_escalation('Acinetobacter baumannii', ab, [good]), 'should escalate'
+    for bad in ({**good, 'verdict': 'MONITOR'},          # not confident enough
+                {**good, 'class': 'intrinsic'},          # not acquired
+                {**good, 'drug_class': 'Tetracyclines'}):  # not a listed class for this organism
+        assert not watchlist_escalation('Acinetobacter baumannii', ab, [bad]), bad
+    # A staphylococcal gene must not escalate an Acinetobacter, however strong it is.
+    assert not watchlist_escalation('Acinetobacter baumannii', ab,
+                                    [{**good, 'group': 'MECA', 'drug_class': 'betalactams'}])
+
+    # --- sample roll-up -----------------------------------------------------------------------
+    T = lambda tier, v, why='x': {'tier': tier, 'verdict': v, 'why': why, 'taxon': 'T'}
+    G = lambda v, hc=False: {'verdict': v, 'class': 'acquired', 'high_consequence': hc,
+                             'group': 'G', 'allele': 'MEG_1', 'breadth': 90.0, 'depth': 9.0}
+    assert sample_verdict([T('A', 'ESCALATE')], [])[0] == 'ESCALATE'
+    assert sample_verdict([T('W', 'CONFIRM')], [])[0] == 'INVESTIGATE'
+    assert sample_verdict([], [G('CONFIRM', hc=True)])[0] == 'INVESTIGATE'   # mecA / CTX-M alone
+    assert sample_verdict([], [G('CONFIRM')])[0] == 'MONITOR'                # ordinary acquired gene
+    assert sample_verdict([T('W', 'MONITOR')], [])[0] == 'MONITOR'
+    assert sample_verdict([T('-', 'MONITOR')], [])[0] == 'NO ACTION'         # community context only
+    assert sample_verdict([], [])[0] == 'NO ACTION'
+    # A watchlist organism can never drive the sample to ESCALATE.
+    assert sample_verdict([T('W', 'CONFIRM')], [G('CONFIRM', hc=True)])[0] == 'INVESTIGATE'
+
+    # --- platform calibration -----------------------------------------------------------------
+    qc = lambda **kw: {'basicSummary': {'readsQc': {'data': [kw]}}}
+    assert detect_platform(qc(Mean_read_length='6678.0')) == 'long'
+    assert detect_platform(qc(Read_Length='150')) == 'short'
+    assert detect_platform({}) == 'short'                    # absent field must not crash or lie
+    st, lt = gene_thresholds('X', 'acquired', 'short'), gene_thresholds('X', 'acquired', 'long')
+    # Long reads saturate breadth and each unit of depth is a whole molecule, so the gates move
+    # in opposite directions. Anything else means the override was dropped or inverted.
+    assert lt['breadth'] > st['breadth'] and lt['depth'] < st['depth'], (st, lt)
+    # A group override still beats the platform override.
+    assert gene_thresholds('CTX', 'acquired', 'long')['breadth'] == \
+           gene_thresholds('CTX', 'acquired', 'short')['breadth']
+    # A full-length gene at 2 spanning molecules is CONFIRM on long reads, MONITOR on short.
+    gene = {'Group': 'ERMB', 'Gene': 'MEG_2793', 'Coverage(%)': '100.0', 'Depth': '2.4',
+            'Type': 'Drugs', 'Class': 'MLS', 'Mechanism': 'Macrolide-resistant 23S ribosomal subunit'}
+    rep = lambda ml: {'basicSummary': {'readsQc': {'data': [{'Mean_read_length': ml}]}},
+                      'drugResistance': {'DNA': {'data': [dict(gene, Mechanism='MLS transferases')]}}}
+    assert triage_genes(rep('7000'))[0]['verdict'] == 'CONFIRM'
+    assert triage_genes(rep('150'))[0]['verdict'] == 'MONITOR'
+
+    # --- gate 10 coverage and the one-way supporting gate -----------------------------------------
+    for pat in RULES['marker_patterns'].values():
+        re.compile(pat)                                    # a broken regex must fail here, not live
+    fake = lambda name, n, vf=(): {
+        'showRNA': False,
+        'virulence': {'DNA': {'data': [{'Virulence Factor': f, 'Pathogen': p, 'VF Protein': 'VFG1'}
+                                       for f, p in vf]}},
+        'indentification_DNA': {'speciesData': {'data': [
+            {'Scientific Name': name, 'Taxid': '1', 'Real Read': str(n),
+             'Estimate Read': str(n), 'Abundance': '5%', 'Human Infection': 'Y'}]}}}
+    row = lambda name, n, vf=(): next(
+        r for r in triage_taxa('s', fake(name, n, vf), {name: {'s': 1.0}}, [], False)
+        if r['taxon'] == name)
+
+    # Two-way marker: absent means downgraded, and it must not claim gate 10 was skipped.
+    assert 'ABSENT' in row('Bacillus anthracis', 5000)['why']
+    assert row('Bacillus anthracis', 5000)['verdict'] == 'NO_ACTION'
+
+    # Supporting marker, present -> ESCALATE. Absent -> unchanged, and the row must say a miss is
+    # not an exclusion. This asymmetry is the whole point: a one-way gate cannot silently clear a
+    # Category A/B detection the way a two-way gate with uncertain VFDB coverage would.
+    cox = row('Coxiella burnetii', 5000)
+    assert cox['verdict'] == 'CONFIRM' and 'does NOT exclude' in cox['why'], cox['why']
+    cox2 = row('Coxiella burnetii', 5000, vf=[('dotA', 'Coxiella burnetii RSA 493')])
+    assert cox2['verdict'] == 'ESCALATE', cox2['why']
+    # Same gene name on another genus's reference strain must NOT confirm it. VFDB really does name
+    # Type VI secretion components icmF/tssM and dotU/tssL, and Staphylococcus really does carry
+    # esxA/esxB - unrestricted, those would escalate Coxiella and M. tuberculosis on clean samples.
+    assert row('Coxiella burnetii', 5000, vf=[('dotA', 'Pseudomonas aeruginosa PAO1')])['verdict'] == 'CONFIRM'
+    assert row('Mycobacterium tuberculosis', 5000,
+               vf=[('esxA', 'Staphylococcus aureus MW2')])['verdict'] == 'CONFIRM'
+    assert row('Mycobacterium tuberculosis', 5000,
+               vf=[('esxA', 'Mycobacterium tuberculosis H37Rv')])['verdict'] == 'ESCALATE'
+    # A supporting marker must be able to lift the subspecies cap - that is what it is for.
+    sal = row('Salmonella enterica', 5000)
+    assert sal['verdict'] == 'MONITOR' and 'needs serovar' in sal['why']
+    assert row('Salmonella enterica', 5000,
+               vf=[('tviB', 'Salmonella enterica serovar Typhi CT18')])['verdict'] == 'ESCALATE'
+    # Gate 9 runs first: a near-neighbour at equal depth must block the lift, or esx would escalate
+    # M. tuberculosis off an environmental NTM that carries the same operon.
+    ntm = {'showRNA': False, 'virulence': {'DNA': {'data': [
+               {'Virulence Factor': 'esxA', 'Pathogen': 'Mycobacterium tuberculosis H37Rv'}]}},
+           'indentification_DNA': {'speciesData': {'data': [
+               {'Scientific Name': n, 'Taxid': '1', 'Real Read': '5000', 'Estimate Read': '5000',
+                'Abundance': '5%', 'Human Infection': 'Y'}
+               for n in ('Mycobacterium tuberculosis', 'Mycobacterium avium')]}}}
+    mtb = next(r for r in triage_taxa('s', ntm, {'Mycobacterium tuberculosis': {'s': 1.0}}, [], False)
+               if r['taxon'] == 'Mycobacterium tuberculosis')
+    assert mtb['verdict'] == 'NO_ACTION' and 'near-neighbour' in mtb['why'], mtb['why']
+
+    # Only agents with genuinely unavailable markers may still have neither gate.
+    neither = sorted(k for k, v in tl.items() if v['genome'] == 'DNA'
+                     and not v.get('markers') and not v.get('supporting_markers'))
+    assert neither == ['Chlamydia psittaci', 'Cryptosporidium parvum', 'Rickettsia prowazekii',
+                       'Variola virus'], neither
+    for k in neither:
+        assert tl[k]['near_neighbours'], f'{k} has no marker, so it must at least name its look-alikes'
+
+    # --- mechanism coverage for the groups long-read stool surfaced ------------------------------
+    for mech, want in (('Tetracycline resistance ribosomal protection proteins', 'acquired'),
+                       ('Tetracycline inactivation enzymes', 'acquired'),
+                       ('VanG-type resistance protein', 'acquired'),
+                       ('VanA-type resistance protein', 'acquired'),
+                       ('Tunicamycin resistance protein', 'environmental')):
+        assert annotate_group('ZZZ', 'Drugs', mech)['class'] == want, mech
     print('selftest: all rule checks pass')
 
 
 if __name__ == '__main__':
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    # --independent: the samples are not from one site (different donors, different facilities), so
+    # a fold-change between them measures who they came from, not where. Turns gate 8 off.
+    comparators = False if '--independent' in sys.argv else None
+    out = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--out=')), None)
     if '--selftest' in sys.argv:
         selftest()
+    elif '--html' in sys.argv:
+        import triage_report
+        path, n = triage_report.build(args or SAMPLES, comparators=comparators,
+                                      **({'out': os.path.join(ROOT, out)} if out else {}))
+        print(f'{os.path.relpath(path, ROOT)}: {n} sample(s), '
+              f'{os.path.getsize(path)/1024:.0f} KB, self-contained')
     else:
-        run(args or SAMPLES)
+        run(args or SAMPLES, comparators)
