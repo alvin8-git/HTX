@@ -150,7 +150,7 @@ organism cannot drive the sample past `INVESTIGATE`).
 | Tier | Meaning |
 |---|---|
 | `NO_ACTION` | Below threshold, kitome, intrinsic gene, or confirmatory marker absent. (Also amplification artifact, when gate 6 is enabled.) |
-| `NOT_TESTED` | A threat-list agent whose genome type this assay cannot see. **Deliberately outside the ladder** so it can never be compared or downgraded into `NO_ACTION`. Absence of evidence, not evidence of absence. |
+| `NOT_TESTED` | **The test did not run.** Two causes: a threat-list agent whose genome type this assay cannot see (RNA against a DNA library), or one whose confirmatory marker was **not assessable at this coverage**. **Deliberately outside the ladder** so it can never be compared or downgraded into `NO_ACTION`. Absence of evidence, not evidence of absence. |
 | `MONITOR` | Real, but not acutely actionable: enriched non-threat taxon, weak acquired gene, a repressor worth deeper sequencing, or a threat whose definition lives below species rank. |
 | `CONFIRM` | Real and actionable. **Terminal state for any AMR gene** — host attribution is unsolved, so no gene reaches `ESCALATE`. Means "culture with AST", not "resistant". |
 | `ESCALATE` | A threat-list agent **with its confirmatory marker present**. The only tier that asserts a biological threat. |
@@ -171,7 +171,7 @@ Numbering matches [`automated_triage_design.md`](automated_triage_design.md).
 | 8 | Cross-sample enrichment | `enrichment` | Depth-normalised load (reads per million classified) vs the highest other sample. Below `enrichment_fold` (5.0) → dropped. **Inert with <2 samples** — see below. |
 | 9 | Near neighbour | `triage_taxa` | A congener at ≥ this taxon's read count → cross-mapping cannot be excluded. |
 | 11 | Taxonomy currency | `taxonomy_notes` | Emits a reclassification note (e.g. *Brucella anthropi* = *Ochrobactrum*). |
-| 10a | Confirmatory marker | `marker_present` | Two-way. Present → `ESCALATE`. Absent → downgrade to `NO_ACTION`. |
+| 10a | Confirmatory marker | `marker_present`, `marker_power` | Two-way **only when the marker could have been seen**. Present → `ESCALATE`. Absent with power ≥ `marker_power_min` → downgrade to `NO_ACTION`. Absent with power below it → `NOT_TESTED`, and the marker reverts to one-way. Below the read floor gate 1 has already answered, so the power test does not run. |
 | — | Subspecies cap | `triage_taxa` | `subspecies_required` and still `CONFIRM` → cap at `MONITOR`. |
 | 10b | Supporting marker | `marker_present` | One-way. Present → `ESCALATE` (lifts the subspecies cap). Absent → unchanged, and the row states that a miss is not an exclusion. |
 | 3 | Allele collapsing | `triage_genes` | Group MEGARes rows by `Group`, keep `max(breadth, depth)`. |
@@ -193,6 +193,59 @@ The kitome genus list becomes the only contamination filter, and every non-threa
 *"no comparator samples — NOT shown to be site-specific"*. Threat-list gating is unaffected: it
 never used cross-sample context. Pass `comparators=False` explicitly for replicates of one
 community.
+
+#### Gate 10a downgrades only when the marker could have been detected
+
+Gate 10a is two-way: a confirmatory marker present raises `ESCALATE`, absent downgrades to
+`NO_ACTION`. **The downgrade arm is only honest if the marker could have been seen at all**, and
+until 2026-08-12 the engine never checked.
+
+WBM179 carried 11 reads of *V. cholerae* — 0.0004× genome coverage:
+
+```
+E[reads on ctxA/ctxB] = 11 × (1,152 + 150) / 4,030,000 = 0.0036
+P(at least one)                                        = 0.35%
+```
+
+`ctxA/ctxB ABSENT` was the expected outcome whether or not the organism was toxigenic. The test had
+no power and the engine reported the non-result as an exclusion.
+
+`marker_power(reads, entry, read_len)` models it as Poisson over uniform coverage. A read overlaps
+the target if it *starts* anywhere in the `marker_bp + read_len` window, so read length belongs in
+the numerator — though it buys less than raw length suggests: a 6.7 kb read beats a 150 bp read by
+**~6×** on a 1.2 kb marker, not the 45× the length ratio implies, and the advantage grows as the
+target shrinks. Uniform coverage is optimistic (real coverage is patchier), and the estimate is
+`P(detect | the strain carries the marker)` — `seb` sits in a minority of *S. aureus* and `ctxAB`
+only in toxigenic *V. cholerae*, so a genuine absence is common, it just is not *demonstrated*.
+
+Below `marker_power_min` (0.90) the marker becomes **one-way**: present would still escalate,
+missing it changes nothing, and the row reads *"marker NOT ASSESSABLE at this coverage"*. The tier
+is `NOT_TESTED`, which already means exactly this and already sits outside the ladder.
+
+**Only above the read floor.** Below `min_real_reads` gate 1 has answered — "too few reads to call
+the organism at all" is a well-powered conclusion about the organism, and the marker question is
+moot. *V. cholerae* at 11 reads stays `NO_ACTION`.
+
+Requires `genome_size_bp` and `marker_bp` on the entry, both carrying a cited
+`marker_power_basis`; the 9 two-way agents have them. Without them `marker_power()` returns `None`
+and the power test does not run. The 8 supporting-marker agents were already one-way (gate 10b).
+
+**Measured effect across the HTX five:** 14 rows move `NO_ACTION` → `NOT_TESTED` — *S. aureus* in
+all five samples (power 4–71%), *E. coli* in four (6–12%), *C. perfringens* in two (3–9%). **No
+sample verdict changes**, because `NOT_TESTED` never rolls up. That is the property that makes the
+change safe: it removes a false exclusion without manufacturing an alarm.
+
+| Organism | Genome | Marker | Reads for 90% power |
+|---|---|---|---|
+| *V. cholerae* | 4.03 Mb | ctxA+ctxB, 1,152 bp | ~7,100 |
+| *S. aureus* | 2.82 Mb | seb, 801 bp | ~6,800 |
+| *C. botulinum* | 3.89 Mb | bont, 3,876 bp | ~2,200 |
+| *B. anthracis* | 5.51 Mb | pXO1/pXO2, 12,600 bp | ~1,000 |
+
+A bigger marker is cheaper to confirm. What this cannot fix is a trace agent: at 0.1% abundance
+and a 7.9% classified yield, 7,100 species-specific reads needs ~90M raw reads, and at 0.01% it
+needs 900M. **Confirmation of a trace agent is not reachable by sequencing deeper** — that is a
+capture-panel or culture question.
 
 #### Gate 8 assumes the samples are comparable, and cannot verify it
 

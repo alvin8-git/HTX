@@ -361,11 +361,33 @@ def species_tab(d):
                       f'<span class="ct">{len(grp)}</span></h3>'
                       f'<p class="blurb">{E(blurb)}</p>{body}</div>')
 
+    # NOT_TESTED carries TWO distinct reasons and they need different renderings. Both mean "the
+    # test did not run", which is why they share the tier - but one agent is absent from the sample
+    # entirely (RNA genome, nothing to show) and the other is PRESENT and often abundant, with its
+    # own evidence, and only its marker test failed. Collapsing the second into a bare name list
+    # would hide S. aureus at 3,654 reads behind a blurb about RNA viruses.
     nt = [t for t in d['taxa'] if t['verdict'] == 'NOT_TESTED']
-    if nt:
-        rows = ''.join(f'<li><b>{E(t["taxon"])}</b> &mdash; CDC Category {E(t["tier"])}</li>' for t in nt)
+    absent = [t for t in nt if not t.get('real')]
+    unpowered = [t for t in nt if t.get('real')]
+    if unpowered:
+        cards = ''.join(taxon_card(d, t) for t in unpowered)
+        banded.append(
+            f'<div class="band nt"><h3 style="border-left-color:{C["grey"]}">'
+            f'{icon("NOT_TESTED")} NOT TESTED &mdash; marker not assessable at this coverage '
+            f'<span class="ct">{len(unpowered)}</span></h3>'
+            f'<p class="blurb"><b>Present, and the confirmatory-marker test had too little power to '
+            f'mean anything.</b> These organisms ARE in the sample. Their threat-list status turns on '
+            f'a toxin or virulence marker, and at this sequencing depth the chance of a read landing '
+            f'on that marker was below {int(triage.TH["marker_power_min"] * 100)}%, so its absence is '
+            f'the expected outcome either way and carries no information. Finding the marker would '
+            f'still escalate; missing it changes nothing. <b>Do not read these as cleared</b> &mdash; '
+            f'targeted PCR or culture is what answers the question.</p>{cards}</div>')
+    if absent:
+        rows = ''.join(f'<li><b>{E(t["taxon"])}</b> &mdash; CDC Category {E(t["tier"])}</li>'
+                       for t in absent)
         banded.append(f'<div class="band nt"><h3 style="border-left-color:{C["grey"]}">'
-                      f'{icon("NOT_TESTED")} NOT TESTED <span class="ct">{len(nt)}</span></h3>'
+                      f'{icon("NOT_TESTED")} NOT TESTED &mdash; assay cannot see this agent '
+                      f'<span class="ct">{len(absent)}</span></h3>'
                       f'<p class="blurb"><b>Not a severity, and not a negative result.</b> These are '
                       f'threat-list agents with RNA genomes screened against a DNA-only library. The '
                       f'test did not run. They are listed below the ladder so they can never be read '

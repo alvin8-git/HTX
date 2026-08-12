@@ -86,7 +86,7 @@ Zymo/ZymoBac_6ng   classified=38,367,696
 
   -- TAXA ---------------------------------------------------------------------------
   MONITOR    B  Salmonella enterica       3,221,442  species-level identification only…
-  NO_ACTION  B  Staphylococcus aureus     3,172,304  confirmatory marker(s) seb ABSENT…
+  NO_ACTION  B  Staphylococcus aureus     3,172,304  seb ABSENT (detectable at 100% power)…
   NO_ACTION  B  Shigella dysenteriae             16  near-neighbour Escherichia coli…
 
   -- AMR GENES ----------------------------------------------------------------------
@@ -106,8 +106,7 @@ Read it in this order:
    tier that asserts a biological threat. If it fires, escalate; do not re-derive it yourself.
 4. **`CONFIRM`** — real and actionable. For AMR genes it is the terminal tier and it means
    *"ask a laboratory about this gene"*, **not** *"the sample is resistant"*.
-5. **`NOT_TESTED`** — a threat-list agent this assay structurally cannot see. **Never read this as
-   a negative.** A DNA library cannot detect an RNA virus; the test did not run.
+5. **`NOT_TESTED`** — **the test did not run.** Either the agent's genome type is invisible to this assay (an RNA virus against a DNA library), or the organism IS present but its confirmatory marker was not assessable at this coverage — too few reads for a read to plausibly land on the marker, so its absence carries no information. **Never read either as a negative.**
 6. **`MONITOR`** — worth knowing, not worth acting on today.
 7. **`suppressed` and `rule coverage`.** `rule coverage` must read `N/N … 0 need a rule`. Anything
    else means MEGARes groups landed in the engine that no rule describes.

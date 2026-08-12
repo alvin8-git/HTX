@@ -12,7 +12,9 @@
     "watchlist_min_abundance_no_comparators": 1.0,
     "long_read_length_bp": 1000.0,
     "escalation_host_share": 0.2,
-    "_escalation_host_share_why": "Co-location alone was enough to escalate a watchlist organism to CONFIRM: the gene was in the sample and the genus was A documented host. That let Serratia marcescens (WBM185) escalate on a CTX-M whose host pool it holds 1.3% of - 77 organisms could carry it and Serratia was one of the smallest. Escalation now also requires the organism to be the MOST ABUNDANT documented host in the sample, or to hold at least this share of the pool. Below that, naming it is arbitrary among the candidates. Set 2026-08-12; A. baumannii in WBM232 holds 21% AND tops its pool, so the one operationally significant finding in the batch is unaffected."
+    "_escalation_host_share_why": "Co-location alone was enough to escalate a watchlist organism to CONFIRM: the gene was in the sample and the genus was A documented host. That let Serratia marcescens (WBM185) escalate on a CTX-M whose host pool it holds 1.3% of - 77 organisms could carry it and Serratia was one of the smallest. Escalation now also requires the organism to be the MOST ABUNDANT documented host in the sample, or to hold at least this share of the pool. Below that, naming it is arbitrary among the candidates. Set 2026-08-12; A. baumannii in WBM232 holds 21% AND tops its pool, so the one operationally significant finding in the batch is unaffected.",
+    "marker_power_min": 0.9,
+    "_marker_power_min_why": "Gate 10a is two-way: a confirmatory marker present raises ESCALATE, absent downgrades to NO_ACTION. The downgrade arm is only valid if the marker COULD have been seen. At 11 reads of V. cholerae (0.0004x genome coverage) the chance of a read landing on ctxA/ctxB is 0.3%, so 'ctxA/ctxB absent' was the expected outcome whether or not the organism was toxigenic - the test had no power and the engine reported it as evidence. Below this power the marker reverts to ONE-WAY (present still escalates, absent changes nothing) and the row is NOT_TESTED: 'marker not assessable at this coverage'. Set 2026-08-12 at 0.90."
   },
   "threat_list": {
     "Bacillus anthracis": {
@@ -28,7 +30,10 @@
         "Bacillus mycoides"
       ],
       "taxid": "1392",
-      "amr_expectation": "Chromosomal bla1/bla2 beta-lactamases are present but poorly expressed; wild-type B. anthracis remains penicillin-susceptible and carries no recognised mobile resistome. An acquired resistance gene in this genus would itself be the finding."
+      "amr_expectation": "Chromosomal bla1/bla2 beta-lactamases are present but poorly expressed; wild-type B. anthracis remains penicillin-susceptible and carries no recognised mobile resistome. An acquired resistance gene in this genus would itself be the finding.",
+      "genome_size_bp": 5510000,
+      "marker_bp": 12600,
+      "marker_power_basis": "Chromosome 5.23 Mb + pXO1 181.7 kb + pXO2 96.2 kb. Markers pagA 2319 + lef 2427 + cya 2400 + atxA 1425 (pXO1) and capB/C/A/D/E ~4030 (pXO2)."
     },
     "Clostridium botulinum": {
       "tier": "A",
@@ -41,7 +46,10 @@
         "Clostridium butyricum",
         "Clostridium sporogenes"
       ],
-      "taxid": "1491"
+      "taxid": "1491",
+      "genome_size_bp": 3890000,
+      "marker_bp": 3876,
+      "marker_power_basis": "Chromosome 3.89 Mb. bont CDS ~3876 bp (BoNT ~1291 aa); the pattern also matches ntnh, so this is conservative."
     },
     "Yersinia pestis": {
       "tier": "A",
@@ -56,7 +64,10 @@
         "Yersinia enterocolitica"
       ],
       "taxid": "632",
-      "amr_expectation": "Wild-type Y. pestis is susceptible to all first-line agents. The two documented multi-resistant isolates (Madagascar, 1995) carried IncP plasmids and are the exception that defines the rule; no endemic mobile resistome exists."
+      "amr_expectation": "Wild-type Y. pestis is susceptible to all first-line agents. The two documented multi-resistant isolates (Madagascar, 1995) carried IncP plasmids and are the exception that defines the rule; no endemic mobile resistome exists.",
+      "genome_size_bp": 4650000,
+      "marker_bp": 2439,
+      "marker_power_basis": "Chromosome 4.65 Mb plus pCD1/pMT1/pPCP1. caf1 522 + lcrV 981 + pla 936."
     },
     "Francisella tularensis": {
       "tier": "A",
@@ -70,7 +81,10 @@
         "Francisella persica"
       ],
       "taxid": "263",
-      "amr_expectation": "Intrinsically resistant to beta-lactams via a chromosomal class A beta-lactamase, but with no acquired mobile resistome; clinical resistance to aminoglycosides, tetracyclines or fluoroquinolones has essentially not been reported."
+      "amr_expectation": "Intrinsically resistant to beta-lactams via a chromosomal class A beta-lactamase, but with no acquired mobile resistome; clinical resistance to aminoglycosides, tetracyclines or fluoroquinolones has essentially not been reported.",
+      "genome_size_bp": 1890000,
+      "marker_bp": 1575,
+      "marker_power_basis": "Chromosome 1.89 Mb. fopA 1104 + tul4/lpnA 471."
     },
     "Variola virus": {
       "tier": "A",
@@ -313,7 +327,10 @@
         "etx"
       ],
       "near_neighbours": [],
-      "taxid": "1502"
+      "taxid": "1502",
+      "genome_size_bp": 3030000,
+      "marker_bp": 981,
+      "marker_power_basis": "Chromosome 3.03 Mb. etx CDS 981 bp, plasmid-borne."
     },
     "Staphylococcus aureus": {
       "tier": "B",
@@ -324,7 +341,10 @@
       "near_neighbours": [
         "Staphylococcus argenteus"
       ],
-      "taxid": "1280"
+      "taxid": "1280",
+      "genome_size_bp": 2820000,
+      "marker_bp": 801,
+      "marker_power_basis": "Chromosome 2.82 Mb. seb CDS 801 bp, carried on SaPI3 in a minority of strains."
     },
     "Vibrio cholerae": {
       "tier": "B",
@@ -334,7 +354,10 @@
         "ctxB"
       ],
       "near_neighbours": [],
-      "taxid": "666"
+      "taxid": "666",
+      "genome_size_bp": 4030000,
+      "marker_bp": 1152,
+      "marker_power_basis": "Two chromosomes, 2.96 + 1.07 Mb. ctxA 777 + ctxB 375, on the CTX-phi prophage."
     },
     "Cryptosporidium parvum": {
       "tier": "B",
@@ -369,7 +392,10 @@
       "near_neighbours": [
         "Escherichia coli"
       ],
-      "taxid": "622"
+      "taxid": "622",
+      "genome_size_bp": 4370000,
+      "marker_bp": 2448,
+      "marker_power_basis": "Chromosome 4.37 Mb. stx1 (A 954 + B 270) + stx2 (A 960 + B 264)."
     },
     "Escherichia coli": {
       "tier": "B",
@@ -383,7 +409,10 @@
         "Escherichia albertii",
         "Shigella flexneri"
       ],
-      "taxid": "562"
+      "taxid": "562",
+      "genome_size_bp": 5000000,
+      "marker_bp": 5270,
+      "marker_power_basis": "Chromosome ~5.0 Mb. stx1 1224 + stx2 1241 + eae 2805."
     },
     "Venezuelan equine encephalitis virus": {
       "tier": "B",

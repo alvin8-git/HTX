@@ -48,7 +48,7 @@ Each of these is a static table plus arithmetic — no judgment.
 | 7 | **Bracken inflation filter** | Real Read vs Estimate Read ratio | *S. agalactiae*: 29 real / 8,301 est |
 | 8 | **Kitome filter** | static contaminant list + cross-sample enrichment | 46 core taxa, §3 |
 | 9 | **Near-neighbour check** | congener co-detection at similar depth | *B. anthracis* vs *B. cereus* group |
-| 10 | **Confirmatory marker** | agent → required marker; absent = downgrade | pXO1/pXO2, *bont*, *mecA* |
+| 10 | **Confirmatory marker** | agent → required marker; absent = downgrade **only when detectable at this coverage**, else `NOT_TESTED` | *V. cholerae*: 11 reads → 0.4% power on `ctxAB`, so absence proves nothing |
 | 11 | **Taxonomy currency** | taxid → renaming/reclassification note | *Brucella anthropi* = *Ochrobactrum* |
 | 12 | **Input integrity** | full decompression + pairing + count vs reported | the two corrupt WBM232 files |
 
@@ -85,7 +85,7 @@ Output must be a **tier, not a diagnosis**:
 | Tier | Meaning |
 |---|---|
 | `NO_ACTION` | below thresholds, or kitome (or amplification artifact, under `--with-fastq`) |
-| `NOT_TESTED` | threat-list agent whose genome type this assay cannot see |
+| `NOT_TESTED` | the test did not run — genome type this assay cannot see, **or** a marker not assessable at this coverage |
 | `MONITOR` | real and site-specific, no acute risk |
 | `CONFIRM` | real, actionable, requires culture + AST or targeted PCR |
 | `ESCALATE` | threat-list agent with its confirmatory marker present |

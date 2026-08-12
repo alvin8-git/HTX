@@ -27,6 +27,7 @@ Design constraints, deliberate:
 """
 import collections
 import gzip
+import math
 import json
 import os
 import re
@@ -150,6 +151,50 @@ def enrichment(loads, taxon, sample):
 
 
 # ---------------------------------------------------------------- markers
+
+def marker_power(reads, entry, read_len):
+    """Probability that at least one read would land on this agent's confirmatory-marker target,
+    given how much of its genome was actually sequenced. Returns None when the rule file carries no
+    genome/marker size for the agent, in which case the caller must not use the power test.
+
+    Gate 10a is two-way: marker present escalates, marker absent downgrades. The downgrade arm is
+    only honest if the marker COULD have been seen. WBM179 carried 11 reads of V. cholerae - 0.0004x
+    genome coverage - so the chance of a read touching ctxA/ctxB was 0.3%, and 'ctxA/ctxB absent'
+    was the expected outcome whether or not the organism was toxigenic. The engine reported that
+    non-result as an exclusion.
+
+    Poisson over uniform coverage. A read overlaps the target if it STARTS anywhere in the
+    marker_bp + read_len window, so E[reads on target] = reads * (marker_bp + read_len) / genome_bp
+    and P(>=1) = 1 - exp(-E). Read length belongs in the numerator and it matters, though less
+    than raw length suggests: the per-read gain is (marker + long) / (marker + short), so a 6.7 kb
+    read beats a 150 bp read by ~6x on a 1.2 kb marker - not the 45x the length ratio implies -
+    and the advantage grows as the target shrinks. Uniform coverage is an idealisation - real coverage is patchier, which
+    makes true power slightly WORSE than this, so the estimate is the optimistic bound. It also
+    assumes the strain carries the marker at all; seb sits in a minority of S. aureus and ctxAB only
+    in toxigenic V. cholerae, so a genuine absence is common - it just is not demonstrated here.
+    """
+    gs, mb = entry.get('genome_size_bp'), entry.get('marker_bp')
+    if not gs or not mb or not reads:
+        return None
+    return 1.0 - math.exp(-reads * (mb + read_len) / gs)
+
+
+def read_length(g):
+    """Mean read length from the QC block, whichever key this platform's report uses. 150 is the
+    short-read default and only applies when the report carries neither key."""
+    try:
+        q = g['basicSummary']['readsQc']['data'][0]
+    except (KeyError, IndexError, TypeError):
+        return 150.0
+    for k in ('Mean_read_length', 'Read_Length'):
+        try:
+            v = float(str(q.get(k, '')).replace(',', ''))
+            if v > 0:
+                return v
+        except (TypeError, ValueError):
+            pass
+    return 150.0
+
 
 def marker_present(g, marker, taxon=None):
     """Search the VFDB table for a marker's pattern. Returns (found, evidence).
@@ -440,6 +485,7 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
     of replicates of one community). Gate 8 is then inert, and non-threat taxa are reported on read
     count alone. Threat-list gating is unaffected — it never depended on cross-sample context."""
     results = []
+    read_len = read_length(g)
     threat, notes = RULES['threat_list'], RULES['taxonomy_notes']
     watch = {k: v for k, v in RULES.get('clinical_watchlist', {}).items() if k != '_comment'}
     # Taxid is the primary key. A name string is re-spelled every time a genus moves and the
@@ -598,12 +644,30 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
         # whose marker is unique to them and reliably in VFDB, so that a negative is a real negative.
         found = [f'{m}({ev})' for m in t['markers']
                  for ok, ev in [marker_present(g, m, name)] if ok]
+        power = marker_power(real, t, read_len)
+        base['marker_power'] = power
         if t['markers']:
             if found:
                 why.append('MARKER PRESENT: ' + ', '.join(found))
                 verdict = 'ESCALATE'
+            elif (power is not None and power < TH['marker_power_min']
+                    and real >= TH['min_real_reads']):
+                # Only above the read floor. Below it, gate 1 has already answered - "too few reads
+                # to call the organism at all" is a well-powered conclusion about the organism, and
+                # the marker question is moot. V. cholerae at 11 reads stays NO_ACTION.
+                # The marker could not have been seen at this coverage, so its absence is not a
+                # result. Downgrading on it would report the expected outcome of a test with no
+                # power as if it were evidence. NOT_TESTED is the tier that already means exactly
+                # this, and it sits outside the ladder so it can never collapse into NO_ACTION.
+                why.append(f'confirmatory marker(s) {"/".join(t["markers"])} NOT ASSESSABLE at this '
+                           f'coverage - {real:,} reads over a {t["genome_size_bp"]/1e6:.2f} Mb '
+                           f'genome gives a {power:.0%} chance of a read landing on the '
+                           f'{t["marker_bp"]:,} bp target, so absence carries no information. The '
+                           f'marker reverts to ONE-WAY: present would still escalate')
+                verdict = 'NOT_TESTED' if verdict != 'ESCALATE' else verdict
             else:
-                why.append(f'confirmatory marker(s) {"/".join(t["markers"])} ABSENT - downgraded')
+                pc = f' (detectable at {power:.0%} power)' if power is not None else ''
+                why.append(f'confirmatory marker(s) {"/".join(t["markers"])} ABSENT{pc} - downgraded')
                 verdict = 'NO_ACTION' if verdict != 'ESCALATE' else verdict
 
         if t.get('subspecies_required') and verdict == 'CONFIRM':
@@ -902,9 +966,32 @@ def selftest():
     # ...and the verdict is still driven only by the marker gate.
     row = next(x for x in triage_taxa('selftest', sp, {}, [blaz], comparators=False)
                if x['taxon'] == 'Staphylococcus aureus')
-    assert row['verdict'] == 'NO_ACTION' and 'seb ABSENT' in row['why'], row
+    # 1,699 reads over a 2.82 Mb genome gives ~44% power on the 801 bp seb target, under the 90%
+    # bar, so the marker is NOT ASSESSABLE and the row is NOT_TESTED rather than NO_ACTION.
+    assert row['verdict'] == 'NOT_TESTED' and 'seb NOT ASSESSABLE' in row['why'], row
     assert 'AMR CONTEXT' in row['why'] and 'BLAZ' in row['why'], row['why']
     assert 'none of them changed this verdict' in row['why'], row['why']
+
+    # --- gate 10a marker power -----------------------------------------------------------------
+    vc = RULES['threat_list']['Vibrio cholerae']
+    assert round(marker_power(11, vc, 150) * 100, 1) == 0.4, marker_power(11, vc, 150)
+    # Depth fixes it in principle; the required depth is the point. ~10k reads clears 90%.
+    assert marker_power(10000, vc, 150) > 0.90
+    # A long read helps, but by (marker+long)/(marker+short) = ~6x on ctxAB, not by the 45x
+    # length ratio. Guard the real figure so the docstring claim cannot drift back up.
+    ratio = marker_power(11, vc, 6678) / marker_power(11, vc, 150)
+    assert 5.5 < ratio < 6.5, ratio
+    # No genome/marker size in the rule file -> no power test, and the caller must not downgrade.
+    assert marker_power(1000, {'markers': ['x']}, 150) is None
+    # Below the read floor gate 1 has already answered; the marker gate must not override it.
+    sp_lo = {'indentification_DNA': {'speciesData': {'data': [
+        {'Scientific Name': 'Vibrio cholerae', 'Taxid': '666', 'Real Read': '11',
+         'Estimate Read': '11', 'Abundance': '0.00%', 'Type': 'Bacteria'}]}},
+        'virulence': {'DNA': {'data': []}}, 'showRNA': False}
+    lo = next(x for x in triage_taxa('selftest', sp_lo, {}, [], comparators=False)
+              if x['taxon'] == 'Vibrio cholerae')
+    assert lo['verdict'] == 'NO_ACTION' and 'below min' in lo['why'], lo['why']
+    assert 'NOT ASSESSABLE' not in lo['why'], lo['why']
     ab = wl['Acinetobacter baumannii']
     # Escalation needs ALL of: acquired + CONFIRM + a listed drug class + this genus as a host.
     good = {'group': 'CTX', 'allele': 'MEG_2378', 'verdict': 'CONFIRM', 'class': 'acquired',

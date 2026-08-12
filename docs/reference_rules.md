@@ -468,11 +468,12 @@ but only for reports that carry a taxid column.
 | Brucella anthropi | Formerly Ochrobactrum anthropi, moved into Brucella in 2020. Ubiquitous reagent contaminant, NOT zoonotic brucellosis. Not a CDC agent. |
 | Staphylococcus argenteus | Formerly part of S. aureus. Cross-maps with S. aureus reads. |
 
-## thresholds — 19 entries
+## thresholds — 21 entries
 
 | Setting | Value |
 |---|---|
 | _escalation_host_share_why | Co-location alone was enough to escalate a watchlist organism to CONFIRM: the gene was in the sample and the genus was A documented host. That let Serratia marcescens (WBM185) escalate on a CTX-M whose host pool it holds 1.3% of - 77 organisms could carry it and Serratia was one of the smallest. Escalation now also requires the organism to be the MOST ABUNDANT documented host in the sample, or to hold at least this share of the pool. Below that, naming it is arbitrary among the candidates. Set 2026-08-12; A. baumannii in WBM232 holds 21% AND tops its pool, so the one operationally significant finding in the batch is unaffected. |
+| _marker_power_min_why | Gate 10a is two-way: a confirmatory marker present raises ESCALATE, absent downgrades to NO_ACTION. The downgrade arm is only valid if the marker COULD have been seen. At 11 reads of V. cholerae (0.0004x genome coverage) the chance of a read landing on ctxA/ctxB is 0.3%, so 'ctxA/ctxB absent' was the expected outcome whether or not the organism was toxigenic - the test had no power and the engine reported it as evidence. Below this power the marker reverts to ONE-WAY (present still escalates, absent changes nothing) and the row is NOT_TESTED: 'marker not assessable at this coverage'. Set 2026-08-12 at 0.90. |
 | bracken_inflation_ratio | 10 |
 | enrichment_fold | 5.0 |
 | escalation_host_share | 0.2 |
@@ -480,6 +481,7 @@ but only for reports that carry a taxid column.
 | gene_breadth_floor | 50.0 |
 | gene_depth_confident | 5.0 |
 | long_read_length_bp | 1000.0 |
+| marker_power_min | 0.9 |
 | min_real_reads | 50 |
 | unique_fraction_floor | 0.15 |
 | unique_probe_reads | 40000 |

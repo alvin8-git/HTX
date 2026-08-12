@@ -251,7 +251,7 @@ Three design commitments follow, and they are the ones to remember:
 | Commitment | Why |
 |---|---|
 | **Tiers, never diagnoses.** | The data supports "worth a laboratory's time", not "this is what it is". |
-| **`NOT_TESTED` never collapses into `NO_ACTION`.** | An RNA virus against a DNA library was not screened. Absence of evidence is not evidence of absence, and the tier system must make that impossible to confuse. |
+| **`NOT_TESTED` never collapses into `NO_ACTION`.** | Two ways a test fails to run: an RNA virus against a DNA library was never screened, and a confirmatory marker at too little coverage was never assessable. Absence of evidence is not evidence of absence, and the tier system must make that impossible to confuse. |
 | **An AMR gene with no attributed host caps at `CONFIRM`.** | Host attribution is unsolved here ([Trap 3](#15-resistance-genes-breadth-and-depth)). No rule fixes a missing measurement. |
 
 ---
@@ -610,7 +610,8 @@ This is the gate that separates a threat-list organism from the threat itself.
 strain shares the taxon's genus.
 
 - **Present** → `ESCALATE`
-- **Absent** → downgrade to `NO_ACTION`
+- **Absent, and the marker was detectable at this coverage** → downgrade to `NO_ACTION`
+- **Absent, and it was not detectable** → `NOT_TESTED`, and the marker reverts to one-way
 
 **Why.** For many agents, the species name is not the threat — a specific mobile element is.
 *Bacillus anthracis* without pXO1 and pXO2 is not anthrax; those two plasmids are the entire
@@ -623,6 +624,42 @@ difference between it and the *B. cereus* group that is everywhere. *E. coli* wi
 
 These are two-way — a miss is a real negative — **only because these genes are unique to the agent
 and reliably present in VFDB.** That condition is what licenses the downgrade.
+
+**A second condition licenses it, and the engine ignored it until 2026-08-12: the marker has to
+have been detectable at all.** WBM179 carried 11 reads of *V. cholerae*. That is 0.0004× of a
+4 Mb genome, so the chance of any read landing on the 1,152 bp `ctxA`/`ctxB` target was **0.35%**.
+"ctxA/ctxB absent" was the expected outcome whether or not the organism was toxigenic — the test
+had no power, and the engine was reporting the non-result as an exclusion.
+
+The gate now computes that probability first:
+
+```
+E[reads on marker] = reads × (marker_bp + read_length) / genome_bp
+P(at least one)    = 1 − exp(−E)
+```
+
+Below `marker_power_min` (0.90) the marker becomes one-way — finding it would still escalate,
+missing it changes nothing — and the row reads *"marker NOT ASSESSABLE at this coverage"*. Below
+the 50-read floor the power test does not run at all, because [gate 1](#gate-1--read-floor) has
+already answered a different and well-powered question: whether the organism is there.
+
+The effect is larger than the *V. cholerae* case suggests, because that row was already
+`NO_ACTION` on read count. **14 rows across the five samples move to `NOT_TESTED`** — *S. aureus*
+in every sample (4–71% power), *E. coli* in four, *C. perfringens* in two. No sample verdict
+changes, because `NOT_TESTED` sits outside the ladder and never rolls up.
+
+| Agent | Genome | Marker target | Reads for 90% power |
+|---|---|---|---|
+| *V. cholerae* | 4.03 Mb | `ctxA`+`ctxB`, 1,152 bp | ~7,100 |
+| *S. aureus* | 2.82 Mb | `seb`, 801 bp | ~6,800 |
+| *C. botulinum* | 3.89 Mb | `bont`, 3,876 bp | ~2,200 |
+| *B. anthracis* | 5.51 Mb | pXO1/pXO2, 12,600 bp | ~1,000 |
+
+A bigger marker is cheaper to confirm. But note what this cannot fix: at 0.1% abundance and the
+7.9% classified yield seen here, 7,100 species-specific reads needs roughly **90 million raw
+reads**, and at 0.01% it needs 900 million. **Confirming a trace agent is not reachable by
+sequencing deeper.** That is a targeted-capture or culture question, and the honest thing for a
+screen to do is say the test did not run.
 
 ---
 
@@ -722,6 +759,7 @@ Source of truth: [`analysis/triage_rules.json`](analysis/triage_rules.json). Ful
 | `min_real_reads` | 50 | Gate 1 read floor |
 | `bracken_inflation_ratio` | 10 | Gate 7 |
 | `enrichment_fold` | 5.0 | Gate 8 |
+| `marker_power_min` | 0.90 | Gate 10a — below this the marker is one-way |
 | `unique_fraction_floor` | 0.15 | Gate 6 |
 | `unique_probe_reads` | 40000 | Gate 6 sampling depth |
 | `gene_breadth_floor` | 50.0 | Gate 4 |

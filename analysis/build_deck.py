@@ -129,7 +129,13 @@ def abbr(n):
     """Genus to initial: 'Staphylococcus aureus' -> 'S. aureus'. The attribution column is the one
     place where losing the last six characters loses the whole point, so buy them here."""
     parts = n.split()
-    return f'{parts[0][0]}. {parts[1]}' if len(parts) > 1 and parts[0][:1].isalpha() else n
+    # Only binomials. 'Variola virus' -> 'V. virus' is not an abbreviation, it is a different
+    # organism's name; the second token has to be a species epithet for the initial to mean anything.
+    if len(parts) < 2 or not parts[0][:1].isalpha():
+        return n
+    if parts[1].lower() in ('virus', 'phage', 'complex', 'group', 'sp.', 'spp.'):
+        return n
+    return f'{parts[0][0]}. {parts[1]}'
 
 
 def clip(t, n):
@@ -157,8 +163,11 @@ def sample_rows(sm):
     present = {r['Scientific Name']: int(r['Real Read']) for r in sp}
 
     order = {'ESCALATE': 0, 'CONFIRM': 1, 'MONITOR': 2, 'NO_ACTION': 3}
-    listed = [t for t in taxa if t['tier'] not in ('-', '') and t['verdict'] != 'NOT_TESTED'
-              and t['real']]
+    # NOT_TESTED rows with reads are kept: since 2026-08-12 that tier also covers "confirmatory
+    # marker not assessable at this coverage", which applies to organisms that ARE present and
+    # abundant (S. aureus at 3,654 reads in WBM232). The zero-read RNA agents are excluded by
+    # t['real'] alone, which is what the old NOT_TESTED filter was really for.
+    listed = [t for t in taxa if t['tier'] not in ('-', '') and t['real']]
     # Ordered by ABUNDANCE, which is how a reader scans a species list - not by verdict, which
     # put a 473-read organism above a 2,300-read one and read as a claim about which matters more.
     # Any organism the engine escalated is pulled in regardless of where abundance puts it.
@@ -866,6 +875,88 @@ def s_cat_bc(prs):
           size=12, color=GREY, line=1.2)
 
 
+def listed_matrix():
+    """Every threat-list and watchlist organism against every sample in the batch. Derived, and
+    keyed on taxid with a name fallback, so an organism that reaches the list under a renamed
+    genus is not silently reported absent."""
+    reps = {x: triage.load_report(x) for x in SAMPLES}
+    byname, bytaxid = {}, {}
+    for x, g in reps.items():
+        rows = g['indentification_DNA']['speciesData']['data']
+        byname[x] = {r['Scientific Name']: int(r['Real Read']) for r in rows}
+        bytaxid[x] = {str(r.get('Taxid', '')).strip(): int(r['Real Read']) for r in rows}
+    R = triage.RULES
+    tl = {k: v for k, v in R['threat_list'].items() if isinstance(v, dict)}
+    wl = {k: v for k, v in R['clinical_watchlist'].items() if isinstance(v, dict)}
+    out = []
+    for name, v in list(tl.items()) + list(wl.items()):
+        tid = str(v.get('taxid', '')).strip()
+        counts = {x: (byname[x].get(name) or bytaxid[x].get(tid) or 0) for x in SAMPLES}
+        grp = f"CDC {v['tier']}" if name in tl else (v.get('priority') or 'WHO')
+        out.append({'name': name, 'grp': grp, 'genome': v.get('genome', 'DNA'),
+                    'counts': counts, 'total': sum(counts.values()),
+                    'testable': v.get('genome', 'DNA') != 'RNA'})
+    return out
+
+
+def s_listed_matrix(prs):
+    s = blank(prs)
+    rows_all = listed_matrix()
+    present = [r for r in rows_all if r['total']]
+    neg = [r for r in rows_all if not r['total'] and r['testable']]
+    nt = [r for r in rows_all if not r['total'] and not r['testable']]
+    title(s, f'All {len(rows_all)} listed pathogens, screened across the batch',
+          'CDC Category A/B/C threat list (46) + WHO priority / ESKAPE watchlist (24). '
+          'Real Read counts; 0 shown as blank.')
+    txbox(s, 0.5, 1.28, 12.33, 0.24,
+          f'{len(present)} PRESENT   |   {len(neg)} genuinely ABSENT (testable)   |   '
+          f'{len(nt)} NOT TESTED (RNA genomes, no RNA library)',
+          size=12, bold=True, color=BLUE)
+
+    ORD = {'CDC A': 0, 'CDC B': 1, 'CDC C': 2}
+    def key(r):
+        return (ORD.get(r['grp'], 3 + ('crit' not in r['grp']) + ('high' not in r['grp'])),
+                -r['total'])
+    present.sort(key=key)
+    cdc = [r for r in present if r['grp'].startswith('CDC')]
+    who = [r for r in present if not r['grp'].startswith('CDC')]
+    allp = cdc + who
+    cut = (len(allp) + 1) // 2
+    half, rest = allp[:cut], allp[cut:]
+
+    SHORTG = {'WHO critical': 'WHO crit', 'WHO critical (fungal)': 'WHO crit',
+              'WHO high': 'WHO high', 'WHO medium': 'WHO med',
+              'WHO (fungal)': 'WHO', 'WHO (mycobacterial)': 'WHO'}
+    def draw(x0, w, data, hdr):
+        txbox(s, x0, 1.62, w, 0.24, hdr, size=12, bold=True, color=RED)
+        rows = [['Organism', 'List'] + [x[3:] for x in SAMPLES]]
+        colors = {}
+        for i, r in enumerate(data, start=1):
+            colors[(i, 1)] = BLUE
+            if r['grp'].startswith('CDC'):
+                colors[(i, 0)] = RED
+            rows.append([abbr(r['name'])[:26], SHORTG.get(r['grp'], r['grp'])]
+                        + [f"{r['counts'][x]:,}" if r['counts'][x] else '' for x in SAMPLES])
+        table(s, x0, 1.92, w, rows, [w - 3.7, 0.95, 0.55, 0.55, 0.55, 0.55, 0.55],
+              sizes=(12, 12), row_h=0.28, colors=colors)
+    draw(0.5, 5.95, half, 'PRESENT — CDC agents, then WHO critical')
+    draw(6.88, 5.95, rest, 'PRESENT — WHO high / medium / other')
+
+    y = 1.92 + 0.28 * (max(len(half), len(rest)) + 1) + 0.18
+    txbox(s, 0.5, y, 5.95, 0.24, f'GENUINELY ABSENT — {len(neg)}, and the assay could have seen them',
+          size=12, bold=True, color=GREEN)
+    txbox(s, 0.5, y + 0.28, 5.95, 1.2, ', '.join(abbr(r['name']) for r in neg) + '.',
+          size=12, color=INK, line=1.08)
+
+    txbox(s, 6.88, y, 5.95, 0.24, f'NOT TESTED — {len(nt)}. THIS IS NOT A NEGATIVE.',
+          size=12, bold=True, color=AMBER)
+    txbox(s, 6.88, y + 0.28, 5.95, 1.2,
+          'Every VHF, the encephalitides, influenza, SARS/MERS, Nipah, Hendra, yellow fever, '
+          'chikungunya and TBE have RNA genomes. No RNA library here, so the test did not run and '
+          'absence carries no information — the largest coverage gap in the assay.',
+          size=12, color=INK, line=1.08)
+
+
 def s_evidence_strength(prs):
     s = blank(prs)
     title(s, 'How strong is each negative?',
@@ -1002,6 +1093,7 @@ def build():
             s_wbm232_evidence(prs)
     s_cat_a(prs)
     s_cat_bc(prs)
+    s_listed_matrix(prs)
     s_evidence_strength(prs)
     s_amr(prs, AM)
     s_recs(prs)
