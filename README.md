@@ -15,8 +15,9 @@ resistance (AMR) genes, and virulence factors (VF).
 **Headline result: no CDC Category A agent is present in any sample.** The one finding that
 warrants operational follow-up is a site-specific, ESBL-carrying *Acinetobacter baumannii*
 population on the Changi T4 trolley handles (WBM232), plus a *mecA* signal on the T3 check-in
-kiosk touchscreen (WBM185) — **whose host organism assembly could not resolve, so this is not a
-confirmed MRSA finding.**
+kiosk touchscreen (WBM185) — **whose host organism cannot be resolved, so this is not a confirmed
+MRSA finding.** No field in the PFI report joins a resistance gene to a species, and an assembly
+run specifically to close that gap could not either.
 
 Full analysis: **[`docs/biothreat_assessment.md`](docs/biothreat_assessment.md)**
 
@@ -112,18 +113,27 @@ HTX_biosurveillance_briefing_modifed.pptx  Hand-adjusted font/geometry reference
 Run from this directory. The table-level analysis needs only `python3` with `openpyxl` — no
 aligner and no reference database. The triage engine needs the standard library only.
 
+Report-only — needs nothing but `WBM<id>_en.html`:
+
 ```bash
 python3 analysis/extract.py WBM*_en.html   # HTML -> analysis/WBM<id>.json
 python3 analysis/analyze.py                # -> analysis/species_all.tsv + threat screen
-python3 analysis/verify_reads.py           # count all 3,698 extracted FASTQs vs reported values
-python3 analysis/dedup.py                  # -> analysis/dedup.json (unique-read fraction + GC)
-python3 analysis/probe_unclassified.py     # GC + k-mer probe of the unclassified fraction
-python3 analysis/check_fastq_integrity.py  # full-decompression check of every WBM*/*.fq.gz
 python3 analysis/build_deck.py             # -> HTX_biosurveillance_briefing.pptx
 python3 analysis/triage.py --selftest      # rule checks for the triage engine
 python3 analysis/triage.py                 # -> analysis/triage_WBM<id>.tsv (deterministic triage)
 python3 analysis/triage.py --html          # -> analysis/triage_report.html (evidence report)
 python3 analysis/validate_zymo.py          # triage engine vs the ZymoBIOMICS standard
+```
+
+Needs the raw FASTQs — **outside the triage engine's input contract**, kept because the batch
+question was "what can be established at all", not "what can be established from the report":
+
+```bash
+python3 analysis/verify_reads.py           # count all 3,698 extracted FASTQs vs reported values
+python3 analysis/dedup.py                  # -> analysis/dedup.json (unique-read fraction + GC)
+python3 analysis/probe_unclassified.py     # GC + k-mer probe of the unclassified fraction
+python3 analysis/check_fastq_integrity.py  # full-decompression check of every WBM*/*.fq.gz
+python3 analysis/triage.py --with-fastq    # triage with gate 6 (unique-read fraction) enabled
 ```
 
 `analysis/species_all.tsv`, `amr.tsv`, and `vf.tsv` are checked in, so the report can be
@@ -151,6 +161,16 @@ organism. The limit is read coverage and allele diversity, not assembler choice.
 `analysis/triage.py` turns a PFI report into a ranked list of what a human should read first.
 Deterministic, auditable, standard library only — no LLM and no ML, because the output may become
 evidence and because five samples with no labels are not a training set.
+
+**Input contract: the HTML report is the whole input.** This is auto-interpretation of the document
+the microbiologist is already sent, so every verdict is checkable against that same page and the
+engine runs wherever the page does. The one gate that reads outside it — gate 6, unique-read
+fraction — is an optional extension behind `--with-fastq`, off by default. Starting from FASTQ is a
+plausible future input; it is not the current one. What the report cannot carry, and what each gap
+would take to close, is listed in
+[`docs/reference_triage.md`](docs/reference_triage.md#what-the-report-cannot-carry). The rules are
+expected to change as the report shape does — an RNA library adds an activity axis the gates
+currently cannot use — and that change belongs in `triage_rules.json`, not in the engine.
 
 ```bash
 python3 analysis/triage.py NEWSAMPLE        # one report -> analysis/triage_NEWSAMPLE.tsv

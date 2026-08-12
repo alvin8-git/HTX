@@ -187,17 +187,23 @@ the allele. If the gene is clinically decisive and you can argue the threshold, 
 `group_thresholds` entry with its `why` field filled in.
 
 **An organism you know is present does not appear**
-Three gates can remove it: fewer than 50 real reads, a unique-read fraction below 15%
-(amplification, not molecules), or enrichment below 5× against the other samples. The TSV records
-which one fired.
+Two gates can remove it: fewer than 50 real reads, or enrichment below 5× against the other
+samples. A third — unique-read fraction below 15% — only fires under `--with-fastq`. The TSV
+records which one did.
 
 ## What this will not tell you
 
 - **Whether anything is alive.** DNA comes off dry surfaces from live cells, dead cells and spores
   alike. The report's "active species" table needs an RNA library and is empty in every DNA run.
-- **Which organism carries a resistance gene.** The AMR table never links gene to host, and
-  assembly could not close the gap either. This costs nine false-positive `CONFIRM` calls on a
-  certified-clean standard — see [`zymo_validation.md`](zymo_validation.md).
+- **Which organism carries a resistance gene.** No field in the report joins the AMR table to the
+  species table. This costs nine false-positive `CONFIRM` calls on a certified-clean standard —
+  see [`zymo_validation.md`](zymo_validation.md).
+- **Whether a trace call is one amplified molecule.** The report gives read counts, never molecule
+  counts. Recoverable only from the raw reads (`--with-fastq`).
+- **What is in the unclassified fraction**, which is 72–90% of reads on a surface swab.
+
+The full list, with what each would take to answer, is in
+[`reference_triage.md` § What the report cannot carry](reference_triage.md#what-the-report-cannot-carry).
 - **Whether a trace call is contamination.** Without a negative extraction control the
   contamination floor is asserted, not measured.
 

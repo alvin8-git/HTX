@@ -5,15 +5,25 @@ docs/automated_triage_design.md. Every verdict carries the rule that produced it
 
     python3 analysis/triage.py                 # all five samples
     python3 analysis/triage.py WBM232          # one sample
+    python3 analysis/triage.py --with-fastq    # additionally run the FASTQ-only gates
     python3 analysis/triage.py --selftest      # rule checks, no data needed
 
 Output: analysis/triage_<sample>.tsv per sample, plus a summary on stdout.
+
+INPUT CONTRACT: the HTML report is the whole input. This is auto-interpretation of the document
+the microbiologist is already sent - so every verdict must be checkable against that same page,
+and the engine must run wherever the page does. Anything needing the raw reads is an OPTIONAL
+EXTENSION behind --with-fastq, off by default, never part of the baseline interpretation. The
+extension exists because starting from FASTQ is a plausible future input; it is not one today.
 
 Design constraints, deliberate:
   * Tiers, never diagnoses. The terminal state for a real finding is CONFIRM (culture + AST).
   * NOT_TESTED never collapses into NO_ACTION. An RNA agent against a DNA library is untested.
   * An AMR gene with no attributed host caps at CONFIRM. Host attribution is unsolved here
     (docs/biothreat_assessment.md 2.5) and no rule fixes a missing measurement.
+  * The rules are expected to change. They encode what is decidable from today's report shape;
+    an RNA library, a new database version or more sample data changes that, and the change
+    belongs in triage_rules.json rather than in this file.
 """
 import collections
 import gzip
@@ -26,6 +36,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RULES = json.load(open(os.path.join(ROOT, 'analysis', 'triage_rules.json')))
 TH = RULES['thresholds']
 SAMPLES = ['WBM156', 'WBM174', 'WBM179', 'WBM185', 'WBM232']
+
+# The optional-extension switch, set by --with-fastq. False is the contract: the HTML report is the
+# whole input, and an importer that never touches this flag gets a pure report-only interpretation.
+WITH_FASTQ = False
 
 # Tier ordering, lowest to highest. NOT_TESTED sits outside the ladder: it is an absence of
 # evidence, not a weak positive, so it must never be compared against or downgraded to NO_ACTION.
@@ -61,19 +75,21 @@ def gate_integrity(sample, g):
     clean, unclass, clas = num(stat['Clean_Read']), num(stat['Unclassified_Read']), num(stat['Classified_Read'])
     if unclass + clas != clean:
         problems.append(f'read partition does not sum: {unclass}+{clas} != {clean}')
-    # Distinguish "not delivered" from "delivered broken". A report supplied without its FASTQs is
-    # a normal delivery, not a corrupt one, and must not read as four failures.
-    paths = [os.path.join(ROOT, sample, f'{kind}.DNA_{mate}.fq.gz')
-             for mate in (1, 2) for kind in ('unclassify', 'removehost')]
-    if not any(os.path.exists(p) for p in paths):
-        problems.append('NOTE: no FASTQs delivered alongside this report - integrity and '
-                        'unique-read gates cannot run; verdicts rest on the report tables alone')
-    else:
-        for p in paths:
-            if not os.path.exists(p):
-                problems.append(f'missing {os.path.basename(p)}')
-            elif os.path.getsize(p) == 0:
-                problems.append(f'empty {os.path.basename(p)}')
+    # FASTQ checks belong to the optional extension, not the baseline. Silence here is the correct
+    # default: a report arriving without its reads is the normal case this engine is built for, and
+    # saying so on every run would train the reader to skip the integrity list.
+    if WITH_FASTQ:
+        paths = [os.path.join(ROOT, sample, f'{kind}.DNA_{mate}.fq.gz')
+                 for mate in (1, 2) for kind in ('unclassify', 'removehost')]
+        if not any(os.path.exists(p) for p in paths):
+            problems.append('--with-fastq requested but no FASTQs found - the FASTQ-only gates did '
+                            'not run; verdicts rest on the report tables alone')
+        else:
+            for p in paths:
+                if not os.path.exists(p):
+                    problems.append(f'missing {os.path.basename(p)}')
+                elif os.path.getsize(p) == 0:
+                    problems.append(f'empty {os.path.basename(p)}')
     if not g.get('showRNA'):
         problems.append('NOTE: DNA-only run - RNA agents are untested, and no species can be '
                         'called active (speciesActivity is empty by construction)')
@@ -81,10 +97,21 @@ def gate_integrity(sample, g):
 
 
 # ---------------------------------------------------------------- gate 6: amplification
+# OPTIONAL EXTENSION - the only gate that reads outside the HTML report, and the only one that is
+# off by default. The PFI report gives read counts, never molecule counts: one fragment amplified
+# 10,000x and 10,000 distinct fragments produce an identical row, so nothing in the document can
+# separate them. Measured cost of running without it, across the five HTX samples: three rows move
+# NO_ACTION -> MONITOR (S. inopinata, Hyphomicrobium sp. MC1, A. methanolica) and no threat-list,
+# watchlist or sample verdict changes at all. It is a removal gate, so its absence can only leave
+# noise in - never take a real finding out. That is the right direction for a screen to fail in,
+# which is what makes HTML-only the safe default rather than a compromise.
 
 def unique_fraction(sample, taxon):
     """Fraction of distinct sequences in a taxon's extracted reads. Computed lazily - only for
-    taxa that survive the earlier gates, so the cost stays trivial."""
+    taxa that survive the earlier gates, so the cost stays trivial. Returns (None, None) unless
+    --with-fastq was given AND the reads are on disk."""
+    if not WITH_FASTQ:
+        return None, None
     d = taxon.replace(' ', '_').replace('/', '_')
     path = os.path.join(ROOT, sample, 'ExtractRead_DNA', 'Species', d, f'{d}_1.fq.gz')
     if not os.path.exists(path):
@@ -281,7 +308,7 @@ def triage_genes(g, platform=None):
 
 # ---------------------------------------------------------------- gates 1,2,7,9,10,11: taxa
 
-def watchlist_escalation(name, w, genes):
+def watchlist_escalation(name, w, genes, present=None):
     """Does a watchlist organism have supporting resistance context in the same sample?
 
     Returns (gene, basis) or None. This is CO-LOCATION, NOT CO-ATTRIBUTION: the gene is in the
@@ -297,8 +324,23 @@ def watchlist_escalation(name, w, genes):
         if x.get('drug_class') not in w['escalating_classes']:
             continue
         h = hints.get(x['group'])
-        if h and any(genus.startswith(t) or t.startswith(genus) for t in h['taxa']):
-            return x, h['basis']
+        if not (h and any(genus.startswith(t) or t.startswith(genus) for t in h['taxa'])):
+            continue
+        # Being A documented host is not enough. If 77 organisms in this sample could carry the
+        # gene and this one holds 1.3% of their reads, naming it is arbitrary - the co-location is
+        # real and the attribution is noise. Require it to lead the pool, or hold a real share.
+        if present:
+            cands = [(n, c) for n, c in present.items()
+                     if any(n.startswith(t + ' ') or n == t for t in h['taxa']) and c]
+            tot = sum(c for _, c in cands)
+            mine = present.get(name, 0)
+            if tot and not (mine >= max(c for _, c in cands)
+                            or mine / tot >= TH['escalation_host_share']):
+                continue
+            if tot:
+                return x, (f"{h['basis']} This organism holds {mine/tot:.0%} of the reads of the "
+                           f"{len(cands)} documented hosts of {x['group']} in this sample.")
+        return x, h['basis']
     return None
 
 
@@ -470,7 +512,7 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
                 bar = (f'no comparator samples, so escalation required abundance '
                        f'>= {TH["watchlist_min_abundance_no_comparators"]}% instead of enrichment '
                        f'(this taxon: {ab:.2f}%)')
-            hit = watchlist_escalation(name, w, genes) if enriched else None
+            hit = watchlist_escalation(name, w, genes, present) if enriched else None
             if fold is None:
                 enr = bar or 'no comparator samples, enrichment untestable'
             elif fold == float('inf'):
@@ -656,15 +698,36 @@ def sample_verdict(taxa, genes):
     if cf or hi:
         return 'INVESTIGATE', why
 
-    mon = [t for t in flagged if t['verdict'] == 'MONITOR']
-    why = [f'{t["taxon"]}: {_headline(t)}' for t in mon]
-    if conf:
-        why.append(f'{len(conf)} acquired resistance gene(s) at CONFIRM, none high-consequence '
-                   f'and none attributable to an organism')
-    if mon or conf:
+    # MONITOR needs a POSITIVE driver, not merely the existence of a listed organism somewhere in
+    # the sample. Before 2026-08-12 any watchlist taxon at MONITOR returned MONITOR - and since a
+    # surface swab carries a dozen WHO-priority organisms at background level as a matter of
+    # course, that made MONITOR the floor rather than a finding, and drained the word of meaning.
+    # A listed organism sitting at the same relative abundance as it does in every other swab is
+    # what background looks like; it is not something to watch.
+    site = [t for t in flagged if t['verdict'] == 'MONITOR'
+            and (t.get('fold') or 0) >= TH['enrichment_fold']]
+    # An acquired gene counts toward the sample verdict only when a LISTED organism is the most
+    # abundant documented host of it. Otherwise it is the resistome of the commensal flora - blaZ
+    # and tetK topping out in S. hominis on a hand-touched surface is normal skin carriage, and
+    # reading it as a reason to watch the site mistakes the population for the place.
+    led = [t for t in flagged
+           if any(c.get('self_rank') == 1 and c.get('verdict') == 'CONFIRM'
+                  for c in (t.get('amr_context') or []))]
+    why = [f'{t["taxon"]}: {_headline(t)}' for t in site]
+    why += [f'{t["taxon"]}: most abundant documented host of an acquired gene at CONFIRM'
+            for t in led if t not in site]
+    if not flagged and conf:
+        why.append(f'{len(conf)} acquired resistance gene(s) at CONFIRM with no listed organism '
+                   f'in this sample to attach them to')
         return 'MONITOR', why
-    return 'NO ACTION', ['No threat-list or watchlist organism above NO ACTION, and no acquired '
-                         'resistance gene reached CONFIRM.']
+    if site or led:
+        return 'MONITOR', why
+    n_bg = len([t for t in flagged if t['verdict'] == 'MONITOR'])
+    return 'NO ACTION', [f'No listed organism is site-enriched and no acquired resistance gene '
+                         f'reached CONFIRM.'
+                         + (f' {n_bg} WHO/CDC-listed organism(s) are present at batch-background '
+                            f'levels - expected on a public surface, and not a finding.'
+                            if n_bg else '')]
 
 
 # ---------------------------------------------------------------- driver
@@ -854,16 +917,34 @@ def selftest():
     # A staphylococcal gene must not escalate an Acinetobacter, however strong it is.
     assert not watchlist_escalation('Acinetobacter baumannii', ab,
                                     [{**good, 'group': 'MECA', 'drug_class': 'betalactams'}])
+    # Co-location is not enough: the organism must lead the gene's host pool or hold a real share.
+    lead = {'Acinetobacter baumannii': 6000, 'Acinetobacter junii': 100}
+    tail = {'Acinetobacter baumannii': 100, 'Acinetobacter junii': 6000, 'Acinetobacter ursingii': 4000}
+    assert watchlist_escalation('Acinetobacter baumannii', ab, [good], lead), 'tops pool -> escalate'
+    assert not watchlist_escalation('Acinetobacter baumannii', ab, [good], tail), \
+        'holds 1% of the pool -> co-location is arbitrary, must not escalate'
 
     # --- sample roll-up -----------------------------------------------------------------------
-    T = lambda tier, v, why='x': {'tier': tier, 'verdict': v, 'why': why, 'taxon': 'T'}
+    T = lambda tier, v, why='x', fold=None, ctx=None: {'tier': tier, 'verdict': v, 'why': why,
+                                                       'taxon': 'T', 'fold': fold,
+                                                       'amr_context': ctx or []}
     G = lambda v, hc=False: {'verdict': v, 'class': 'acquired', 'high_consequence': hc,
                              'group': 'G', 'allele': 'MEG_1', 'breadth': 90.0, 'depth': 9.0}
     assert sample_verdict([T('A', 'ESCALATE')], [])[0] == 'ESCALATE'
     assert sample_verdict([T('W', 'CONFIRM')], [])[0] == 'INVESTIGATE'
     assert sample_verdict([], [G('CONFIRM', hc=True)])[0] == 'INVESTIGATE'   # mecA / CTX-M alone
     assert sample_verdict([], [G('CONFIRM')])[0] == 'MONITOR'                # ordinary acquired gene
-    assert sample_verdict([T('W', 'MONITOR')], [])[0] == 'MONITOR'
+    # MONITOR needs a positive driver. A listed organism merely PRESENT at background level is
+    # what a public surface looks like, and returning MONITOR for it made the tier the floor.
+    assert sample_verdict([T('W', 'MONITOR', fold=9.0)], [])[0] == 'MONITOR'      # site-enriched
+    assert sample_verdict([T('W', 'MONITOR', fold=1.2)], [])[0] == 'NO ACTION'    # background
+    assert sample_verdict([T('W', 'MONITOR', fold=None)], [])[0] == 'NO ACTION'   # not comparable
+    # A listed organism topping the host pool of an acquired CONFIRM gene is also a driver...
+    assert sample_verdict([T('W', 'MONITOR', ctx=[{'self_rank': 1, 'verdict': 'CONFIRM'}])],
+                          [G('CONFIRM')])[0] == 'MONITOR'
+    # ...but the same gene led by a commensal is not: that is the flora's resistome, not the site's.
+    assert sample_verdict([T('W', 'MONITOR', ctx=[{'self_rank': 4, 'verdict': 'CONFIRM'}])],
+                          [G('CONFIRM')])[0] == 'NO ACTION'
     assert sample_verdict([T('-', 'MONITOR')], [])[0] == 'NO ACTION'         # community context only
     assert sample_verdict([], [])[0] == 'NO ACTION'
     # A watchlist organism can never drive the sample to ESCALATE.
@@ -959,6 +1040,9 @@ def selftest():
 
 if __name__ == '__main__':
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    # --with-fastq: opt in to the gates that read outside the HTML report (gate 6, FASTQ integrity).
+    # Off by default so the baseline output is reproducible by anyone holding only the report.
+    WITH_FASTQ = '--with-fastq' in sys.argv
     # --independent: the samples are not from one site (different donors, different facilities), so
     # a fold-change between them measures who they came from, not where. Turns gate 8 off.
     comparators = False if '--independent' in sys.argv else None

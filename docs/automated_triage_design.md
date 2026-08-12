@@ -44,7 +44,7 @@ Each of these is a static table plus arithmetic — no judgment.
 | 3 | **Allele collapsing** | group MEGARes rows by `Group`, keep max(breadth, depth) | 3 MECA rows → 1 *mecA* call (WBM185) |
 | 4 | **Breadth × depth gate** | reject genes below threshold on either axis | LpxA 51.65%/1.90× (WBM232) |
 | 5 | **Intrinsic vs acquired** | MEGARes group → annotation | AdeJ intrinsic; CTX-M acquired |
-| 6 | **Amplification filter** | unique-read fraction vs sample baseline | *C. botulinum*: 11 reads → 1 molecule |
+| 6 | **Amplification filter** *(optional, `--with-fastq`)* | unique-read fraction vs sample baseline | *C. botulinum*: 11 reads → 1 molecule |
 | 7 | **Bracken inflation filter** | Real Read vs Estimate Read ratio | *S. agalactiae*: 29 real / 8,301 est |
 | 8 | **Kitome filter** | static contaminant list + cross-sample enrichment | 46 core taxa, §3 |
 | 9 | **Near-neighbour check** | congener co-detection at similar depth | *B. anthracis* vs *B. cereus* group |
@@ -58,7 +58,7 @@ Gates 6–8 are the ones that kill most false positives, and they are pure arith
 
 | Limit | Why no algorithm fixes it |
 |---|---|
-| **Host attribution of mobile genes** | Proven this project: assembly recovered no *mecA*/CTX-M contig, and per-taxon mapping returned **0 reads at MAPQ ≥ 20**. The classifier never assigned these elements to a species. Missing measurement. |
+| **Host attribution of mobile genes** | No field in the report joins the AMR table to the species table, so it is unavailable in principle. Nor is it merely unattempted: assembly was run on this batch and recovered no *mecA*/CTX-M contig, with per-taxon mapping returning **0 reads at MAPQ ≥ 20** (§2.5 of `biothreat_assessment.md` — work outside this engine's input contract). Missing measurement. |
 | **Viability / activity** | Requires RNA. `showRNA=False` in all five reports. |
 | **Expression-dependent resistance** | *adeJ* needs *adeN* variant calling; ~0.25× genome coverage cannot support it. |
 | **Novel organisms** | Not in any lookup by definition. The k-mer probe can say *"something dominant is unassigned"* — it cannot name it. |
@@ -84,7 +84,7 @@ Output must be a **tier, not a diagnosis**:
 
 | Tier | Meaning |
 |---|---|
-| `NO_ACTION` | below thresholds, or kitome, or amplification artifact |
+| `NO_ACTION` | below thresholds, or kitome (or amplification artifact, under `--with-fastq`) |
 | `NOT_TESTED` | threat-list agent whose genome type this assay cannot see |
 | `MONITOR` | real and site-specific, no acute risk |
 | `CONFIRM` | real, actionable, requires culture + AST or targeted PCR |
@@ -111,15 +111,15 @@ Replaying this project's conclusions against the design above:
 | Conclusion | Rule-derivable? |
 |---|---|
 | No CDC Category A agent | **Yes** — near-neighbour + missing pXO1/pXO2; *bont* absent |
-| *C. botulinum* is an artifact | **Yes** — unique-read fraction |
+| *C. botulinum* is an artifact | **Yes** — read floor + `bont` absent from the report; the unique-read fraction sharpens it but is not needed for the verdict |
 | *S. agalactiae* inflated | **Yes** — real vs estimate ratio |
 | WBM232 *A. baumannii* site-specific ESBL | **Yes** — enrichment + acquired-gene table |
 | WBM232 LpxA/AdeJ not resistance evidence | **Yes** — intrinsic flag + coverage gate |
 | WBM179 *mecI* is *blaI* spillover | **Yes** — same-mechanism homology + depth rank |
 | Kitome assignments | **Yes** |
-| Corrupt FASTQ detection | **Yes** |
-| WBM185 *mecA* host unresolved | **Partly** — flags `CONFIRM`; deciding to attempt assembly and interpreting its negative was judgment |
-| Unclassified-bin probe | **Partly** — can compute and threshold; interpreting the artifacts was judgment |
+| Corrupt FASTQ detection | **Yes** — but outside the HTML-only contract (`--with-fastq`) |
+| WBM185 *mecA* host unresolved | **Yes** — flags `CONFIRM` and states that no field joins gene to organism. (Deciding to *attempt* assembly, and reading its negative, was judgment — and outside the contract.) |
+| Unclassified-bin probe | **No** — needs the raw reads; the report carries only the unclassified *count* |
 
 Roughly **80% of the routine determinations**, with the residual concentrated where a human
 belongs. Most of these rules already exist in prose in `biothreat_assessment.md` and `README.md`

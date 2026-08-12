@@ -38,6 +38,10 @@ analysis/triage_rules.xlsx
 *.pptx
 ~$*
 
+# Knowledge graph built by the graphify skill - 1.6 MB of regenerable output, and the cache
+# stores absolute paths from this machine. Rebuild with `/graphify`.
+graphify-out/
+
 # Local tooling state.
 .omc/
 .claude/

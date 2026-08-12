@@ -206,8 +206,8 @@ def qc_tab(d):
                 disc = (f'<p class="note"><b>Two classified-read figures exist and both are correct.</b> '
                         f'The QC module reports <b>{a:,}</b>; this identification summary reports '
                         f'<b>{b:,}</b>, a difference of {a-b:,}. Both partition the same clean reads. '
-                        f'The QC figure matches the delivered FASTQs and is the one quoted throughout; '
-                        f'the summary drops reads assigned above species level.</p>')
+                        f'The QC figure is the denominator quoted throughout; the summary drops reads '
+                        f'assigned above species level.</p>')
         king = (f'<h3>Kingdom breakdown <span class="src">idSummary / Classify.stat.xlsx</span></h3>'
                 f'<table class="kv">{cells}</table>{disc}')
 
@@ -295,11 +295,12 @@ def taxon_card(d, t):
                  f'range includes this genus &mdash; INFERRED, NOT MEASURED</h4>'
                  f'<p class="tiny"><b>MEGARes carries no organism column.</b> These genes were '
                  f'detected in this sample and this genus is a documented host for them &mdash; that '
-                 f'is all. Nothing here shows the gene is in <i>this</i> organism. Assembly was run '
-                 f'specifically to settle host attribution and could not '
-                 f'(docs/biothreat_assessment.md &sect;2.5); mapping per-taxon reads onto the '
-                 f'assembled AMR contigs returned zero at MAPQ&nbsp;&ge;&nbsp;20. Culture with AST '
-                 f'is the only way to close this. <b>Do not report these as this organism\'s '
+                 f'is all. Nothing here shows the gene is in <i>this</i> organism. Nothing in the '
+                 f'PFI report can show it either: the resistance table has no organism column and '
+                 f'the species table has no gene column, so no field joins them. Assembly from raw '
+                 f'reads is the analysis that could settle it, and it is outside what this report '
+                 f'sees. Culture with AST is the only way to close this. '
+                 f'<b>Do not report these as this organism\'s '
                  f'resistance profile.</b> The <i>candidate hosts present</i> column lists every '
                  f'documented host of that gene found in this sample, most abundant first, with '
                  f'<span class="self">this taxon highlighted</span>. Where a congener outnumbers '
@@ -429,9 +430,9 @@ the command shown. No network, no database, no aligner &mdash; Python 3 standard
     find several near-identical alleles &mdash; that is the allele collapsing described above.</li>
 <li>For a taxon, search the <b>taxid</b> or the scientific name in the identification table.</li>
 </ol>
-<p class="blurb">Every number on this page is copied from those tables unchanged. Where the engine
-computed something the PFI report does not carry &mdash; unique-read fraction, cross-sample
-enrichment &mdash; the card says so in its <i>Why</i> line.</p>
+<p class="blurb">Every number on this page is copied from those tables unchanged. The one quantity
+computed rather than copied is cross-sample enrichment, which is arithmetic on read counts that are
+themselves in the reports; the card says so in its <i>Why</i> line.</p>
 </div><div>
 <h3>How to read the sample verdict</h3>
 <p class="blurb">The banner at the top of every tab. One answer for the whole sample, rolled up from
@@ -457,6 +458,37 @@ gene</b>, and no row is ever labelled INVESTIGATE &mdash; that word belongs to t
  'the samples were declared independent, so a fold-change between them would measure who they came '
  'from, not where') + '.</li>' if not d['comparators'] else ''}
 </ul>
+<h3>The input contract &mdash; and what a FASTQ input would add</h3>
+<p class="blurb">This engine reads <b>one PFI HTML report</b> and nothing else. That is deliberate:
+it is the document a microbiologist is actually sent, so every conclusion here can be checked
+against the same page, and the engine runs wherever the report does. The cost is a specific, listed
+set of questions the report cannot answer &mdash; these are limits of the <i>input</i>, not of the
+rules, and each would be recoverable from the raw reads if the pipeline is ever pointed at them.</p>
+<table class="kv v">
+<tr><th>Molecule count</th><td>The report gives read counts. One fragment amplified 10,000&times;
+    and 10,000 distinct fragments produce an identical row, so a trace call cannot be shown to be a
+    PCR artifact. <i>From FASTQ:</i> the unique-read fraction, already implemented as gate&nbsp;6 and
+    active whenever <code>ExtractRead_DNA/</code> is delivered.</td></tr>
+<tr><th>Gene host</th><td>No field joins the resistance table to the species table. <i>From FASTQ:</i>
+    assembly plus read mapping &mdash; which on this batch still failed to resolve it, so this one is
+    not guaranteed even with the reads.</td></tr>
+<tr><th>Unclassified reads</th><td>72&ndash;90% of reads in a surface swab match nothing in the PFI
+    database, and the report says nothing about them. Any organism absent from that database is
+    invisible to every row on this page. <i>From FASTQ:</i> direct k-mer and GC interrogation of that
+    bin.</td></tr>
+<tr><th>Resistance by mutation</th><td>Only gene presence is reported. Resistance conferred by point
+    mutation &mdash; <i>gyrA</i>, <i>rpoB</i>, <i>lpxA</i> &mdash; is invisible, so its absence here is
+    never evidence of susceptibility. <i>From FASTQ:</i> variant calling, given sufficient
+    depth.</td></tr>
+<tr><th>Genomic context</th><td>Whether a gene sits on a plasmid, a prophage or the chromosome, and
+    what travels with it. <i>From FASTQ:</i> assembly and replicon typing.</td></tr>
+<tr><th>Viability and RNA</th><td>Not recoverable from the DNA reads either &mdash; this needs an RNA
+    library at the bench. When one exists, the report grows a <code>speciesActivity</code> table and
+    the rules gain an activity axis they currently cannot use.</td></tr>
+</table>
+<p class="blurb">These rules are expected to change. They encode what is decidable from today's
+report shape; a new library type, a new database version or more sample data changes what is
+decidable, and the rule file &mdash; not the engine &mdash; is where that change belongs.</p>
 <h3>Measured accuracy</h3>
 <p class="blurb">Against the ZymoBIOMICS Microbial Community Standard (known composition, five
 inputs): sensitivity 10/10 organisms in every sample, zero false escalations, quantitation mean

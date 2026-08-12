@@ -114,9 +114,11 @@ Two independent reasons:
    narrower than a RefSeq-complete build, so classification rate is a property of the reference
    set as much as of the sample (Nasko 2018; Breitwieser 2019; Gu 2019).
 
-In this project the unclassified bin was probed directly rather than assumed away: GC-content
-spectrum plus over-represented 25-mers, across all five HTX samples. No dominant unknown organism —
-top k-mers sat at 0.01–0.02% after removing a poly-G artifact and Illumina adapter read-through.
+The report says nothing about what is in that bin — it gives only the count. Anything absent from
+the PFI database lands here and is invisible to every downstream verdict, which makes it the single
+largest blind spot in an HTML-only reading. Interrogating it needs the raw reads. (This project did
+so once, outside the triage engine: GC spectrum plus over-represented 25-mers across all five HTX
+samples found no dominant unknown organism, top k-mers at 0.01–0.02%.)
 
 ## 1.4 Host DNA
 
@@ -521,11 +523,22 @@ with presence. It is the crudest gate and it does a lot of work.
 
 **Asks:** are these reads independent molecules, or copies of one?
 
+> **This gate is an optional extension and is off by default.** It is the one gate that reads
+> outside the HTML report, so it runs only under `--with-fastq`. Everything else in this cascade
+> works from the report alone.
+
 **Rule.** Extract the taxon's reads, count distinct sequences among the first 40,000. Unique
 fraction below **15%** → amplification artifact, not an organism.
 
 **Why.** PCR duplicates inflate read counts without adding information. Ten thousand reads that
 are ten thousand copies of one molecule is one molecule.
+
+**Why it is optional.** The report gives read counts, never molecule counts — one fragment read
+10,000× and 10,000 distinct fragments produce an identical row, so the distinction is not
+recoverable from the document. Measured cost of going without it across the five HTX samples:
+**no sample verdict changes, no threat-list or watchlist row changes, and 3 of 444 taxon rows move
+`NO_ACTION` → `MONITOR`**. It is a *removal* gate, so its absence can only leave noise in, never
+take a real finding out — which is the right direction for a screen to fail in.
 
 **The case that justifies it.** *Clostridium botulinum*, 11 reads, in a swab of an airport
 passport scanner. Those 11 reads collapse to **one unique sequence**. Category A agent, apparently
@@ -758,10 +771,10 @@ virulence factors. DNA-only, 150 bp paired-end, PFI report software v5.1.2 / DB 
 **What the gates rejected.** Every Category A agent screened negative, and each rejection came
 from a specific gate:
 
-- *B. anthracis* — *B. cereus* group genuinely present (22 and 43 reads, both >40% unique, correct
-  GC). Excluded at **plasmid** level: zero pXO1, zero pXO2 (gate 10a).
-- *C. botulinum* — 11 reads collapsing to one unique sequence (gate 6).
-- *V. cholerae* — 11 reads, one unique molecule, no cholera toxin genes (gates 6 + 10a).
+- *B. anthracis* — *B. cereus* group genuinely present (22 and 43 reads). Excluded at **plasmid**
+  level: zero pXO1, zero pXO2 (gate 10a).
+- *C. botulinum* — 11 reads, below the 50-read floor, and `bont` absent (gates 1 + 10a).
+- *V. cholerae* — 11 reads, below the floor, no cholera toxin genes (gates 1 + 10a).
 - *Y. pestis* — no *Yersinia* at all; the `ybtT`/`irp2` hits are yersiniabactin siderophore genes
   carried by *K. pneumoniae* and *E. coli*, a shared iron-uptake island (gate 9 reasoning).
 - 25 RNA agents — `NOT_TESTED`, never `NO_ACTION` (gate 2).
@@ -772,10 +785,10 @@ from a specific gate:
 classes. *mecA* at 90.89%/10.51×, CTX-M ESBL at 82.88%/7.25×, *blaZ*, and **`mupA` at
 90.18%/11.70×**. That last one the manual analysis missed: *mupA* confers high-level mupirocin
 resistance, and mupirocin is the standard decolonisation agent. On the same surface as *mecA*, it
-predicts that decolonisation would fail. The gene did not assemble, so its host is unresolved and
-"MRSA" cannot be claimed from this data.
+predicts that decolonisation would fail. No field in the report attaches the gene to an organism,
+so its host is unresolved and "MRSA" cannot be claimed from this data.
 
-*WBM232* (T4 trolley handles) — *A. baumannii* at 4.72%, 27% unique reads, **2,507 reads per
+*WBM232* (T4 trolley handles) — *A. baumannii* at 4.72%, **2,507 reads per
 million against 58–417 rpm elsewhere (6–43×)**. Real site enrichment, not reagent background.
 CTX-M ESBL at 60.56%/11.69×. And **`adeN` at 85.76%/8.85×** — the second miss from the manual
 pass, and the more subtle one: AdeIJK is an intrinsic efflux pump whose presence means nothing,
@@ -924,9 +937,11 @@ from a real test, and a new sample type should be assumed to carry more.
 Stated plainly, because a triage tool that oversells itself is worse than none.
 
 **Which organism carries a resistance gene.** The central limitation. MEGARes has no organism
-column; assembly was run specifically to close the gap and could not. Cost: nine false-positive
-`CONFIRM` calls on a certified-clean standard. `CONFIRM` means "ask a laboratory about this gene",
-never "the sample is resistant".
+column, and no field in the report joins a resistance row to a species row — so this is unavailable
+in principle, not merely unattempted. (Assembly from raw reads was tried on this batch and still
+could not resolve it; see `docs/biothreat_assessment.md` §2.5, which is outside the engine's input
+contract.) Cost: nine false-positive `CONFIRM` calls on a certified-clean standard. `CONFIRM` means
+"ask a laboratory about this gene", never "the sample is resistant".
 
 **Whether anything is alive.** DNA comes off dry surfaces from live cells, dead cells and spores
 alike.
@@ -1001,7 +1016,7 @@ command that runs against a fresh clone.
 | **Read** | One sequenced DNA fragment |
 | **Real Read** | Reads whose sequence is species-specific |
 | **Shotgun** | Untargeted sequencing of everything present |
-| **Unique fraction** | Distinct sequences ÷ total reads — an amplification test |
+| **Unique fraction** | Distinct sequences ÷ total reads — an amplification test. Needs the raw reads; not in the report |
 | **VFDB** | Virulence factor database; rows are attributed to reference **strains** |
 | **XDR** | Extensively drug-resistant — non-susceptible to all but ≤2 drug categories |
 

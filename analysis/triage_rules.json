@@ -10,7 +10,9 @@
     "unique_fraction_floor": 0.15,
     "unique_probe_reads": 40000,
     "watchlist_min_abundance_no_comparators": 1.0,
-    "long_read_length_bp": 1000.0
+    "long_read_length_bp": 1000.0,
+    "escalation_host_share": 0.2,
+    "_escalation_host_share_why": "Co-location alone was enough to escalate a watchlist organism to CONFIRM: the gene was in the sample and the genus was A documented host. That let Serratia marcescens (WBM185) escalate on a CTX-M whose host pool it holds 1.3% of - 77 organisms could carry it and Serratia was one of the smallest. Escalation now also requires the organism to be the MOST ABUNDANT documented host in the sample, or to hold at least this share of the pool. Below that, naming it is arbitrary among the candidates. Set 2026-08-12; A. baumannii in WBM232 holds 21% AND tops its pool, so the one operationally significant finding in the batch is unaffected."
   },
   "threat_list": {
     "Bacillus anthracis": {
@@ -843,7 +845,9 @@
     },
     "MUPA": {
       "class": "acquired",
-      "note": "mupA - a second, plasmid-borne isoleucyl-tRNA synthetase conferring HIGH-LEVEL mupirocin resistance. Clinically important: mupirocin is the standard nasal decolonisation agent for MRSA carriage, so mupA predicts decolonisation failure."
+      "note": "mupA - a second, plasmid-borne isoleucyl-tRNA synthetase conferring HIGH-LEVEL mupirocin resistance. Clinically important: mupirocin is the standard nasal decolonisation agent for MRSA carriage, so mupA predicts decolonisation failure.",
+      "high_consequence": true,
+      "high_consequence_basis": "Mupirocin IS the standard decolonisation agent, so high-level mupA resistance means the first-line response to a staphylococcal finding would silently fail. An operational decision changed by the result is the test for this flag."
     },
     "CATA": {
       "class": "acquired",
@@ -1195,7 +1199,7 @@
     "Drugs|Tunicamycin resistance protein": "environmental"
   },
   "amr_host_hints": {
-    "_comment": "Host-range hints for the HTML report ONLY. MEGARes carries no organism column, so these are literature expectations about which organisms typically carry a gene family - NOT evidence from this dataset, and never an input to any verdict. The report renders them as INFERRED and repeats that assembly could not attribute these genes (docs/biothreat_assessment.md 2.5). A hint is shown only when a matching organism is independently present in the same sample. Genus lists were extended 2026-08 for organisms on the CDC/WHO lists that had no coverage: Shigella (genomically Escherichia coli, same plasmid- and integron-borne resistome), Morganella and Providencia (Morganellaceae, same acquired Enterobacterales repertoire), Vibrio on the SXT/R391 ICE cargo genes only (sul2, floR, strAB, aadA, tetA - Jia 2026, doi:10.3389/fmicb.2026.1751786), and Campylobacter on erm(B) and aph(3')-III (Katic 2026, doi:10.1089/fpd.2024.0173). Mycobacteroides was added alongside Mycobacterium after the 2018 genus split, because the report now names the organism Mycobacteroides abscessus.",
+    "_comment": "Host-range hints for the HTML report ONLY. MEGARes carries no organism column, so these are literature expectations about which organisms typically carry a gene family - NOT evidence from this dataset, and never an input to any verdict. The report renders them as INFERRED and repeats that assembly could not attribute these genes (docs/biothreat_assessment.md 2.5). A hint is shown only when a matching organism is independently present in the same sample. Genus lists were extended 2026-08 for organisms on the CDC/WHO lists that had no coverage: Shigella (genomically Escherichia coli, same plasmid- and integron-borne resistome), Morganella and Providencia (Morganellaceae, same acquired Enterobacterales repertoire), Vibrio on the SXT/R391 ICE cargo genes only (sul2, floR, strAB, aadA, tetA - Jia 2026, doi:10.3389/fmicb.2026.1751786), and Campylobacter on erm(B) and aph(3')-III (Katic 2026, doi:10.1089/fpd.2024.0173). Mycobacteroides was added alongside Mycobacterium after the 2018 genus split, because the report now names the organism Mycobacteroides abscessus. 2026-08-12: added the Ade* RND efflux families (AdeABC/AdeFGH/AdeIJK and regulators) for Acinetobacter. These were the gap that mattered: an INTRINSIC gene is definitionally attributable to its own genus, which makes it the strongest attribution case in the file, and it was the only one uncurated. LpxA deliberately NOT added - lipid A biosynthesis is universal among Gram-negatives, so its presence attributes to nothing and confers no resistance without a mutation the report cannot see.",
     "MECA": {
       "taxa": [
         "Staphylococcus",
@@ -1658,6 +1662,72 @@
         "Staphylococcus"
       ],
       "basis": "tet(46) is a Gram-positive ABC efflux determinant."
+    },
+    "ADEA": {
+      "taxa": [
+        "Acinetobacter"
+      ],
+      "basis": "The Ade* RND efflux families (AdeABC, AdeFGH, AdeIJK and their regulators) are named for Acinetobacter drug efflux and are chromosomally encoded within the genus; AdeIJK in particular is intrinsic and present in every A. baumannii genome sequenced. Coyne et al. 2011, Antimicrob Agents Chemother 55:947 (doi:10.1128/AAC.01388-10); Damier-Piolle et al. 2008, AAC 52:557 (doi:10.1128/AAC.00732-07). An intrinsic gene is the one class that CAN be attributed: it belongs to its own genus by definition. The species within the genus still cannot be resolved from read counts alone."
+    },
+    "ADEB": {
+      "taxa": [
+        "Acinetobacter"
+      ],
+      "basis": "The Ade* RND efflux families (AdeABC, AdeFGH, AdeIJK and their regulators) are named for Acinetobacter drug efflux and are chromosomally encoded within the genus; AdeIJK in particular is intrinsic and present in every A. baumannii genome sequenced. Coyne et al. 2011, Antimicrob Agents Chemother 55:947 (doi:10.1128/AAC.01388-10); Damier-Piolle et al. 2008, AAC 52:557 (doi:10.1128/AAC.00732-07). An intrinsic gene is the one class that CAN be attributed: it belongs to its own genus by definition. The species within the genus still cannot be resolved from read counts alone."
+    },
+    "ADEC": {
+      "taxa": [
+        "Acinetobacter"
+      ],
+      "basis": "The Ade* RND efflux families (AdeABC, AdeFGH, AdeIJK and their regulators) are named for Acinetobacter drug efflux and are chromosomally encoded within the genus; AdeIJK in particular is intrinsic and present in every A. baumannii genome sequenced. Coyne et al. 2011, Antimicrob Agents Chemother 55:947 (doi:10.1128/AAC.01388-10); Damier-Piolle et al. 2008, AAC 52:557 (doi:10.1128/AAC.00732-07). An intrinsic gene is the one class that CAN be attributed: it belongs to its own genus by definition. The species within the genus still cannot be resolved from read counts alone."
+    },
+    "ADEF": {
+      "taxa": [
+        "Acinetobacter"
+      ],
+      "basis": "The Ade* RND efflux families (AdeABC, AdeFGH, AdeIJK and their regulators) are named for Acinetobacter drug efflux and are chromosomally encoded within the genus; AdeIJK in particular is intrinsic and present in every A. baumannii genome sequenced. Coyne et al. 2011, Antimicrob Agents Chemother 55:947 (doi:10.1128/AAC.01388-10); Damier-Piolle et al. 2008, AAC 52:557 (doi:10.1128/AAC.00732-07). An intrinsic gene is the one class that CAN be attributed: it belongs to its own genus by definition. The species within the genus still cannot be resolved from read counts alone."
+    },
+    "ADEG": {
+      "taxa": [
+        "Acinetobacter"
+      ],
+      "basis": "The Ade* RND efflux families (AdeABC, AdeFGH, AdeIJK and their regulators) are named for Acinetobacter drug efflux and are chromosomally encoded within the genus; AdeIJK in particular is intrinsic and present in every A. baumannii genome sequenced. Coyne et al. 2011, Antimicrob Agents Chemother 55:947 (doi:10.1128/AAC.01388-10); Damier-Piolle et al. 2008, AAC 52:557 (doi:10.1128/AAC.00732-07). An intrinsic gene is the one class that CAN be attributed: it belongs to its own genus by definition. The species within the genus still cannot be resolved from read counts alone."
+    },
+    "ADEH": {
+      "taxa": [
+        "Acinetobacter"
+      ],
+      "basis": "The Ade* RND efflux families (AdeABC, AdeFGH, AdeIJK and their regulators) are named for Acinetobacter drug efflux and are chromosomally encoded within the genus; AdeIJK in particular is intrinsic and present in every A. baumannii genome sequenced. Coyne et al. 2011, Antimicrob Agents Chemother 55:947 (doi:10.1128/AAC.01388-10); Damier-Piolle et al. 2008, AAC 52:557 (doi:10.1128/AAC.00732-07). An intrinsic gene is the one class that CAN be attributed: it belongs to its own genus by definition. The species within the genus still cannot be resolved from read counts alone."
+    },
+    "ADEI": {
+      "taxa": [
+        "Acinetobacter"
+      ],
+      "basis": "The Ade* RND efflux families (AdeABC, AdeFGH, AdeIJK and their regulators) are named for Acinetobacter drug efflux and are chromosomally encoded within the genus; AdeIJK in particular is intrinsic and present in every A. baumannii genome sequenced. Coyne et al. 2011, Antimicrob Agents Chemother 55:947 (doi:10.1128/AAC.01388-10); Damier-Piolle et al. 2008, AAC 52:557 (doi:10.1128/AAC.00732-07). An intrinsic gene is the one class that CAN be attributed: it belongs to its own genus by definition. The species within the genus still cannot be resolved from read counts alone."
+    },
+    "ADEJ": {
+      "taxa": [
+        "Acinetobacter"
+      ],
+      "basis": "The Ade* RND efflux families (AdeABC, AdeFGH, AdeIJK and their regulators) are named for Acinetobacter drug efflux and are chromosomally encoded within the genus; AdeIJK in particular is intrinsic and present in every A. baumannii genome sequenced. Coyne et al. 2011, Antimicrob Agents Chemother 55:947 (doi:10.1128/AAC.01388-10); Damier-Piolle et al. 2008, AAC 52:557 (doi:10.1128/AAC.00732-07). An intrinsic gene is the one class that CAN be attributed: it belongs to its own genus by definition. The species within the genus still cannot be resolved from read counts alone."
+    },
+    "ADEK": {
+      "taxa": [
+        "Acinetobacter"
+      ],
+      "basis": "The Ade* RND efflux families (AdeABC, AdeFGH, AdeIJK and their regulators) are named for Acinetobacter drug efflux and are chromosomally encoded within the genus; AdeIJK in particular is intrinsic and present in every A. baumannii genome sequenced. Coyne et al. 2011, Antimicrob Agents Chemother 55:947 (doi:10.1128/AAC.01388-10); Damier-Piolle et al. 2008, AAC 52:557 (doi:10.1128/AAC.00732-07). An intrinsic gene is the one class that CAN be attributed: it belongs to its own genus by definition. The species within the genus still cannot be resolved from read counts alone."
+    },
+    "ADER": {
+      "taxa": [
+        "Acinetobacter"
+      ],
+      "basis": "The Ade* RND efflux families (AdeABC, AdeFGH, AdeIJK and their regulators) are named for Acinetobacter drug efflux and are chromosomally encoded within the genus; AdeIJK in particular is intrinsic and present in every A. baumannii genome sequenced. Coyne et al. 2011, Antimicrob Agents Chemother 55:947 (doi:10.1128/AAC.01388-10); Damier-Piolle et al. 2008, AAC 52:557 (doi:10.1128/AAC.00732-07). An intrinsic gene is the one class that CAN be attributed: it belongs to its own genus by definition. The species within the genus still cannot be resolved from read counts alone."
+    },
+    "ADET": {
+      "taxa": [
+        "Acinetobacter"
+      ],
+      "basis": "The Ade* RND efflux families (AdeABC, AdeFGH, AdeIJK and their regulators) are named for Acinetobacter drug efflux and are chromosomally encoded within the genus; AdeIJK in particular is intrinsic and present in every A. baumannii genome sequenced. Coyne et al. 2011, Antimicrob Agents Chemother 55:947 (doi:10.1128/AAC.01388-10); Damier-Piolle et al. 2008, AAC 52:557 (doi:10.1128/AAC.00732-07). An intrinsic gene is the one class that CAN be attributed: it belongs to its own genus by definition. The species within the genus still cannot be resolved from read counts alone."
     }
   },
   "clinical_watchlist": {

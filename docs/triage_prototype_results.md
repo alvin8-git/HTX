@@ -9,7 +9,10 @@ Self-check: `python3 analysis/triage.py --selftest` — passes.
 taxonomy (`indentification_DNA.speciesData`), AMR (`drugResistance.DNA`) and virulence
 (`virulence.DNA`) in a single parse. The per-sample xlsx files hold the same tables but would need
 four reads and an `openpyxl` dependency. The extracted FASTQs under `WBM<id>/ExtractRead_DNA/` are
-touched only for the unique-read fraction, and only for taxa that survive the earlier gates.
+touched only under `--with-fastq`, only for the unique-read fraction, and only for taxa that
+survive the earlier gates. This run predates that flag, so the numbers below include gate 6; the
+default output no longer does, and the three rows that differ are listed in
+[`reference_triage.md`](reference_triage.md#measured-cost-of-the-html-only-default).
 
 Deterministic, stdlib only, no LLM and no ML. Every verdict carries the rule and the numbers that
 produced it.
@@ -21,7 +24,7 @@ produced it.
 | Human conclusion | Engine | Evidence it used |
 |---|---|---|
 | No CDC Category A agent in any sample | ✅ | Only Cat A hit anywhere is *C. botulinum* in WBM174 |
-| *C. botulinum* is an artifact | ✅ `NO_ACTION` | 11 reads < min 50; **unique fraction 9%**; `bont` absent |
+| *C. botulinum* is an artifact | ✅ `NO_ACTION` | 11 reads < min 50; `bont` absent — either alone suffices. (Unique fraction 9% adds a third, under `--with-fastq`.) |
 | *mecA* = MEG_3778, not MEG_3770/3780 | ✅ | Collapsed 3 alleles, picked max(breadth, depth) — same allele |
 | CTX-M = MEG_2430 over MEG_2435 (WBM185) | ✅ | Same collapsing rule, 82.88%/7.25× |
 | *mecA* host unresolved → not MRSA | ✅ `CONFIRM`, never `ESCALATE` | Cap rule: acquired gene with no attributed host |

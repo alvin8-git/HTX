@@ -1,6 +1,17 @@
 # Biothreat screen — 5 surface swabs (WBM156/174/179/185/232)
 ### v4 — verified against raw sample folders, with assembly-based AMR attribution and a rule-engine cross-check
 
+> **Scope: this document is deliberately outside the triage engine's input contract.**
+> `analysis/triage.py` reads one PFI HTML report and nothing else. This assessment went further —
+> raw FASTQs, unique-read fractions, observed-vs-expected genome GC, a *megahit* assembly with
+> *abricate*, and per-taxon read mapping — because the question of the batch was "what can be
+> established at all", not "what can be established from the report". It is kept intact as the
+> record of that work, and it is the best evidence available for what the extra data buys:
+> §2.5 is the measurement showing that even assembly could **not** resolve the *mecA* / CTX-M host.
+> Do not port conclusions from this document into the engine, the report or the deck without
+> checking that the report alone supports them. The standing list of what the report cannot carry
+> lives in [`reference_triage.md`](reference_triage.md#what-the-report-cannot-carry).
+
 **Changed in v4 (2026-08-05):** every finding below was re-derived independently by
 `analysis/triage.py`, a deterministic rule engine with no access to this document. It agreed on
 the Category A negatives, the *C. botulinum* artifact, the *mecI*/*lpxA*/*adeJ* dismissals and the

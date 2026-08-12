@@ -82,8 +82,8 @@ table** — the parsimonious reading is that MECI is spillover from `blaI`, not 
 the coagulase-negative species that dominate this sample. It confers penicillin resistance, which
 has been near-universal in staphylococci since the 1950s, and says nothing about methicillin.
 
-**4. Host is unattributed anyway.** As established in §2.5, the AMR table never links a gene to an
-organism, and assembly could not close that gap. With *S. aureus* at 0.20% and *S. epidermidis* at
+**4. Host is unattributed anyway.** No field in the report links a gene to an organism (and §2.5
+showed assembly could not close the gap either). With *S. aureus* at 0.20% and *S. epidermidis* at
 3.37%, `blaZ` is more likely *epidermidis*'.
 
 **Conclusion for WBM179: no methicillin-resistance finding, and nothing that elevates
@@ -109,8 +109,9 @@ the organism dangerous, not drug-resistant. Nothing about it belongs in the AMR 
 | *C. paraputrificum* | 13 | 0.00% |
 | ***C. botulinum*** | **11** | **0.00%** |
 
-11 reads, collapsing to **1 unique molecule** after deduplication — an amplification artifact, not
-an organism.
+11 reads — below the 50-read floor, so it never survives gate 1. (It also collapses to **1 unique
+molecule** after deduplication, but that is a raw-read measurement outside the report and outside
+the engine's default input contract.)
 
 **BoNT is absent everywhere.** Zero `bont`/neurotoxin hits across all five VF tables
 (252 / 468 / 414 / 657 / 654 rows).
@@ -134,8 +135,8 @@ is no value you could write into a species row that would be true in general, so
 be precomputed for any species, let alone 27,827.
 
 **Reframed as "actionable", it is still per-sample.** Actionability in this project depends on
-depth-normalised load, enrichment relative to the other four samples, unique-read fraction, the
-site, and co-occurring genes — none of which are properties of a species.
+depth-normalised load, enrichment relative to the other four samples, the site, and co-occurring
+genes — none of which are properties of a species.
 
 **What genuinely can be precomputed is a decision-rule table.** Static, species-level annotation
 that turns each detection into a defined next step:

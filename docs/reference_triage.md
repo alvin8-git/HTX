@@ -18,6 +18,7 @@ python3 analysis/triage.py                 # all five HTX samples -> TSV + stdou
 python3 analysis/triage.py WBM232          # one sample
 python3 analysis/triage.py Zymo/ZymoBac_6ng   # a sample in a subdirectory
 python3 analysis/triage.py --html          # -> analysis/triage_report.html
+python3 analysis/triage.py --with-fastq    # additionally run the FASTQ-only gates
 python3 analysis/triage.py --selftest      # rule checks, no data required
 python3 analysis/triage.py --independent stool_sms/A stool_sms/B   # unrelated donors
 python3 analysis/triage.py --html --out=analysis/gut.html stool_sms/A   # elsewhere
@@ -30,6 +31,7 @@ python3 analysis/triage.py --html --out=analysis/gut.html stool_sms/A   # elsewh
 | `--html` | flag | Writes `analysis/triage_report.html` instead of the TSVs. Combines with sample arguments. |
 | `--independent` | flag | The samples are not from one site — different donors, different facilities. Turns gate 8 off, so a fold-change between them is never read as site enrichment. |
 | `--out=<path>` | option | Destination for `--html`, relative to the repo root. Without it, every run overwrites `analysis/triage_report.html`. |
+| `--with-fastq` | flag | Opts in to the gates that read outside the HTML report — gate 6 (unique-read fraction) and the FASTQ presence checks in gate 12. **Off by default**: the baseline output must be reproducible by anyone holding only the report. |
 | `--selftest` | flag | Runs `selftest()` and exits. Requires no report files. |
 
 Use `--independent` whenever the batch is not a set of swabs from one facility. Gate 8 asks
@@ -54,9 +56,20 @@ Keys consumed:
 | `virulence.DNA.data` | confirmatory and supporting markers (gate 10), genus-matched on `Pathogen` |
 | `showRNA` | assay-detectability gate (gate 2) |
 
-Optional, read lazily and only for taxa that survive earlier gates:
-`<sample>/ExtractRead_DNA/Species/<Name>/<Name>_1.fq.gz` — unique-read fraction (gate 6).
-`<sample>/{unclassify,removehost}.DNA_[12].fq.gz` — integrity (gate 12).
+**The HTML report is the whole input.** This is auto-interpretation of the document a
+microbiologist is already sent: every verdict must be checkable against that same page, and the
+engine must run wherever the page does. Nothing above requires the raw reads.
+
+Optional extension, **off by default**, enabled with `--with-fastq`. Read lazily and only for taxa
+that survive earlier gates:
+
+| Path | Adds |
+|---|---|
+| `<sample>/ExtractRead_DNA/Species/<Name>/<Name>_1.fq.gz` | unique-read fraction (gate 6) |
+| `<sample>/{unclassify,removehost}.DNA_[12].fq.gz` | FASTQ presence and size checks (gate 12) |
+
+The extension exists because starting from FASTQ is a plausible future input, not a current one.
+See [What the report cannot carry](#what-the-report-cannot-carry) for what running without it costs.
 
 ### Output
 
@@ -78,7 +91,7 @@ Plus a human-readable summary on stdout.
 
 `analysis/triage_report.html`, one file for every sample in the run, written by
 `analysis/triage_report.py`. Self-contained — CSS, SVG icons and JavaScript inlined, no network
-requests — so it opens from disk and survives being emailed. Roughly 550 KB for five samples.
+requests — so it opens from disk and survives being emailed. Roughly 780 KB for five samples.
 
 A sample switcher across the top, four tabs per sample:
 
@@ -89,7 +102,7 @@ A sample switcher across the top, four tabs per sample:
 | **Resistance genes** | Sample-level, severity-banded, under a standing banner that no gene is attributed to an organism. |
 | **Method & verification** | The exact command, the rule fingerprint, and how to check any row against the PFI report. |
 
-Each species card carries the evidence behind its verdict: taxonomy counts, unique-read fraction,
+Each species card carries the evidence behind its verdict: taxonomy counts, cross-sample load,
 confirmatory-marker status, **VFDB rows attributed to that species with their accessions**, and —
 where applicable — the inferred host-range block described under `amr_host_hints` below.
 
@@ -128,7 +141,7 @@ organism cannot drive the sample past `INVESTIGATE`).
 
 | Tier | Meaning |
 |---|---|
-| `NO_ACTION` | Below threshold, kitome, amplification artifact, intrinsic gene, or confirmatory marker absent. |
+| `NO_ACTION` | Below threshold, kitome, intrinsic gene, or confirmatory marker absent. (Also amplification artifact, when gate 6 is enabled.) |
 | `NOT_TESTED` | A threat-list agent whose genome type this assay cannot see. **Deliberately outside the ladder** so it can never be compared or downgraded into `NO_ACTION`. Absence of evidence, not evidence of absence. |
 | `MONITOR` | Real, but not acutely actionable: enriched non-threat taxon, weak acquired gene, a repressor worth deeper sequencing, or a threat whose definition lives below species rank. |
 | `CONFIRM` | Real and actionable. **Terminal state for any AMR gene** — host attribution is unsolved, so no gene reaches `ESCALATE`. Means "culture with AST", not "resistant". |
@@ -142,11 +155,11 @@ Numbering matches [`automated_triage_design.md`](automated_triage_design.md).
 
 | # | Gate | Function | Effect |
 |---|---|---|---|
-| 12 | Input integrity | `gate_integrity` | Read partition must sum; FASTQs present and non-empty. Reports "no FASTQs delivered" as a note, not four failures. |
+| 12 | Input integrity | `gate_integrity` | Read partition must sum. FASTQ presence/size checks only under `--with-fastq`. |
 | 2 | Assay detectability | `triage_taxa` | RNA agent + `showRNA=False` → `NOT_TESTED`. Runs **before** the read-count gate. |
 | 1 | Read floor | `triage_taxa` | `min_real_reads` (50). |
 | 7 | Bracken inflation | `triage_taxa` | `Estimate/Real > bracken_inflation_ratio` (10) → flagged, judged on Real Read. |
-| 6 | Amplification | `unique_fraction` | Unique fraction below `unique_fraction_floor` (0.15) → artifact. Lazy: only for surviving taxa. |
+| 6 | Amplification | `unique_fraction` | **Optional extension — `--with-fastq` only, inert by default.** Unique fraction below `unique_fraction_floor` (0.15) → artifact. Lazy: only for surviving taxa. |
 | 8 | Cross-sample enrichment | `enrichment` | Depth-normalised load (reads per million classified) vs the highest other sample. Below `enrichment_fold` (5.0) → dropped. **Inert with <2 samples** — see below. |
 | 9 | Near neighbour | `triage_taxa` | A congener at ≥ this taxon's read count → cross-mapping cannot be excluded. |
 | 11 | Taxonomy currency | `taxonomy_notes` | Emits a reclassification note (e.g. *Brucella anthropi* = *Ochrobactrum*). |
@@ -458,9 +471,12 @@ the right action whether or not the gene turns out to belong to that organism.
 MEGARes carries no organism column, so a resistance gene cannot be placed under a species from
 this data. These entries record the *literature* host range of a gene family. A hint is rendered
 under a species only when that genus is independently present in the same sample, and it is drawn
-in a dashed amber box headed **INFERRED, NOT MEASURED**, restating that assembly could not
-attribute these genes and that per-taxon reads mapped onto the assembled AMR contigs returned zero
-at MAPQ ≥ 20.
+in a dashed amber box headed **INFERRED, NOT MEASURED**, restating that no field in the report
+joins a resistance row to a species row — the resistance table has no organism column and the
+species table has no gene column — so the attribution is unavailable in principle, not merely
+unattempted. (Assembly from raw reads is the analysis that could settle it; on this batch it was
+run and still could not — see `biothreat_assessment.md` §2.5. That work is outside this engine's
+input contract either way.)
 
 #### Candidate-host ranking — `genus_amr_context()`
 
@@ -564,3 +580,52 @@ Exit 0 on pass, 1 on fail. Full results and the five known defects:
 | Site-specificity from one sample | Impossible; the run says so. |
 | Contamination floor | Needs a negative extraction control; thresholds are asserted, not measured. |
 | Threshold calibration | Reasoned, not fitted. Needs culture-confirmed samples. |
+
+---
+
+## What the report cannot carry
+
+The engine's limits are mostly limits of its **input**, not of its rules. This is the standing list
+of what a PFI HTML report cannot answer, what it would take to answer it, and — where it has been
+measured — what running without it actually costs. It is maintained deliberately: a limit that is
+written down can be designed around, and a limit that is not gets mistaken for a clean result.
+
+| Question | Why the report cannot answer it | What would answer it |
+|---|---|---|
+| **Is this taxon distinct molecules or one amplified fragment?** | The report gives read counts. One fragment read 10,000× and 10,000 distinct fragments produce an identical row. | Unique-read fraction from `ExtractRead_DNA` — implemented as gate 6, behind `--with-fastq`. |
+| **Which organism carries this resistance gene?** | No field joins `drugResistance.DNA` to `speciesData`. Sample-wide by construction. | Assembly + read mapping. Attempted on this batch (§2.5) and it *still* failed for `mecA`/CTX-M, so even the raw reads do not guarantee an answer. Culture with AST does. |
+| **What is in the 72–90% unclassified reads?** | The report says nothing about them. Any organism absent from the PFI database lands here and is invisible to every row. | Direct k-mer and GC interrogation of the unclassified bin. |
+| **Is resistance conferred by a point mutation?** | Only gene *presence* is reported. `gyrA`, `rpoB`, `lpxA` resistance is invisible, so its absence is never evidence of susceptibility. | Variant calling at sufficient depth. |
+| **Is this gene on a plasmid, a prophage or the chromosome?** | No genomic context of any kind is reported. | Assembly and replicon typing. |
+| **Is anything alive?** | Not in the DNA reads either. Needs an RNA library at the bench. | An RNA run; the report then carries `speciesActivity` and the rules gain an activity axis. |
+
+### Measured cost of the HTML-only default
+
+Gate 6 is the only baseline gate genuinely lost, and it is a **removal** gate — its absence can
+leave noise in, never take a real finding out. Across the five HTX samples, running without it:
+
+| | With gate 6 | HTML-only |
+|---|---|---|
+| Sample verdicts | MONITOR ×3, INVESTIGATE ×2 | **identical** |
+| Threat-list / watchlist rows changed | — | **0** |
+| Taxon rows changed (of 444) | — | **3**, all `NO_ACTION` → `MONITOR` |
+
+The three are *Scardovia inopinata* (13% unique of 67 reads), *Hyphomicrobium* sp. MC1 (10% of 78)
+and *Amycolatopsis methanolica* (9% of 55) — all environmental or oral commensals, all carrying
+`detected only in this sample`. That is the real interaction: **gate 6 protects gate 8**, because
+a stack of PCR duplicates found nowhere else counterfeits site-specificity exactly.
+
+Threat-list rows are insulated by redundancy rather than by gate 6. It fired on *C. botulinum* and
+*V. cholerae*, and neither moved — each already had two independent grounds for `NO_ACTION` (the
+50-read floor, and confirmatory-marker absence), both computed from the report alone.
+
+> Generalise with care. Gate 6 fired on 5 of 305 measured taxa here (1.6%), on swabs whose median
+> unique fraction is 0.33. A low-biomass, over-cycled library would sit far closer to the 15% floor
+> and the false-positive count would rise with it. Three rows is the cost for *these* samples, not
+> a general bound.
+
+### These rules are expected to change
+
+The gate cascade encodes what is decidable from today's report shape. A new library type (RNA), a
+new PFI database version, or simply more sample data changes what is decidable — and that change
+belongs in `triage_rules.json`, not in `triage.py`. The engine is the part that should stay still.

@@ -1,15 +1,25 @@
 """Build the HTX biosurveillance briefing deck on the MGI 2025 template.
 
 Data: Basic.stat.xlsx (QC), analysis/species_all.tsv (taxonomy), analysis/amr.tsv (MEGARes),
-analysis/vf.tsv (VFDB), assembly/*.amr_attribution.tsv + assembly/*.<db>.tsv (assembly cross-check).
-Narrative is the conclusion set from docs/biothreat_assessment.md.
+analysis/vf.tsv (VFDB). Narrative is the conclusion set from docs/biothreat_assessment.md.
+
+SCOPE RULE: every claim on these slides must be derivable from the PFI HTML report alone.
+The deck is the briefing form of an engine whose only input is <sample>_en.html, so evidence
+that needs the raw FASTQs or an assembly cannot appear here - a reader given the same report
+must be able to reach the same conclusion. Removed under this rule (2026-08): unique-read
+fraction and the amplification-artifact readings built on it, observed-vs-expected genome GC,
+the megahit/abricate assembly cross-check, FASTQ delivery verification, and the unclassified-bin
+k-mer probe. Every verdict survived the removal on report-table evidence alone; where a removed
+line carried a caveat, the caveat is restated on its HTML-derivable grounds rather than dropped.
 
 Typography/geometry follow HTX_biosurveillance_briefing_modifed.pptx (the user's hand-adjusted
 reference): Arial throughout, MINIMUM body size 12 pt - see MIN_PT, which floors every run.
 
     python3 analysis/build_deck.py    ->  HTX_biosurveillance_briefing.pptx
 """
-import csv, json, os, re, openpyxl
+import csv, json, os, re, sys, openpyxl
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import triage
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
@@ -40,90 +50,261 @@ SITES = {
     'WBM232': 'Changi T4 - departure, trolley handles (rows 5-6)',
 }
 
-FLAGGED = {
-    'WBM156': [
-        ('Streptococcus pneumoniae', '70 reads / est. 1,800', 'Bracken inflation; oral commensal streptococci dominate the sample', 'amber'),
-        ('Pseudomonas aeruginosa', '111 reads (0.76%)', 'Plausible tap/water biofilm; load is flat across all 5 sites', 'amber'),
-        ('Neisseria meningitidis', '31 reads', 'N. subflava is 8.2% here - species assignment is not separable', 'grey'),
-        ('Campylobacter concisus', '523 reads', 'Oral commensal Campylobacter, not the enteric pathogen', 'grey'),
-    ],
-    'WBM174': [
-        ('Clostridium botulinum', '11 reads', 'REFUTED - 1 unique molecule, and zero bont toxin genes (see next slide)', 'grey'),
-        ('Bacillus cereus group', '22 reads, 41% unique', 'Real, but zero pXO1 / pXO2 - not B. anthracis', 'amber'),
-        ('Staphylococcus aureus', '1,444 reads (0.40%)', 'Present; blaZ + ermC detected, no mecA in this sample', 'amber'),
-        ('Rickettsia felis', '101 reads', 'Flea-borne agent; not on the CDC list, low-confidence call', 'grey'),
-    ],
-    'WBM179': [
-        ('Vibrio cholerae', '11 reads', 'REFUTED - 1 unique molecule; no ctxA/ctxB', 'grey'),
-        ('Staphylococcus aureus', '1,699 reads (0.20%)', 'Present with blaZ; mecI but no mecA', 'amber'),
-        ('Staphylococcus epidermidis', '65,238 reads (3.37%)', 'Skin flora - expected on a fingerprint reader', 'grey'),
-        ('Streptococcus sanguinis', '41,427 reads (3.43%)', 'Oral flora transfer; 40 VFDB hits are commensal adhesins', 'grey'),
-    ],
-    'WBM185': [
-        ('mecA - MEG_3778', '90.89% cov / 10.51x', 'Strongest AMR call in the batch, but it did NOT assemble - host unresolved', 'red'),
-        ('CTX-M ESBL - MEG_2430', '82.88% cov / 7.25x', 'Extended-spectrum beta-lactamase, with K. pneumoniae also present', 'red'),
-        ('mupA - MEG_4089', '90.18% cov / 11.70x', 'High-level mupirocin resistance - decolonisation would likely fail', 'red'),
-        ('Staphylococcus aureus', '2,300 reads (0.42%)', 'Co-occurs with abundant CoNS (S. hominis 11.2%, S. haemolyticus 1.8%)', 'amber'),
-        ('Bacillus cereus group', '43 reads, 42% unique', 'Real environmental B. cereus; zero anthrax plasmid markers', 'amber'),
-    ],
-    'WBM232': [
-        ('Acinetobacter baumannii', '6,496 reads (4.72%)', 'SITE-SPECIFIC ENRICHMENT: 2,507 rpm vs 58-417 rpm elsewhere (6-43x)', 'red'),
-        ('CTX-M ESBL - MEG_2378', '60.56% cov / 11.69x', 'Acquired ESBL - the one genuinely acquired resistance gene here', 'red'),
-        ('AdeJ / AdeN / LpxA', '53.7% / 85.8% / 51.7% cov', 'Efflux pump, its repressor, colistin target - PRESENCE ONLY, not resistance', 'amber'),
-        ('L. pneumophila / C. tetani / N. meningitidis', '25 / 28 / 13 reads', 'ALL REFUTED - 2 unique molecules, or GC far from the expected genome GC', 'grey'),
-    ],
-}
+# The flaggable-species list is DERIVED, not hand-written. Two rules, applied identically to all
+# five samples:
+#   (a) only organisms on the CDC threat list or the WHO/ESKAPE clinical watchlist appear. A
+#       near-neighbour used to REFUTE a threat (B. cereus for anthrax, N. subflava for meningitis)
+#       is exclusion evidence, not a finding, and belongs on the Category A/B/C slides.
+#   (b) resistance genes are never rows of their own. A gene is not an organism; it is evidence
+#       about one. Each is attributed as far as the report allows and no further.
+LISTED_CAP = 5          # rows before "+N more"; the full set is in the triage HTML report
+GENE_CAP = 3
+SHORT = {'WHO critical': 'WHO crit', 'WHO high': 'WHO high', 'WHO medium': 'WHO med'}
 
+
+def badge_for(t):
+    """The list badge from the ENGINE's row, not a name lookup. Two watchlist organisms reach the
+    list by taxid under a name the rule file does not carry - 'Mycobacteroides abscessus' and
+    '[Candida] haemuloni' - so a by-name badge lookup rendered them as '-', i.e. as if they were
+    not WHO-listed at all. That is the exact genus-rename drift taxid keying exists to kill,
+    reappearing one layer up in the deck."""
+    if t['tier'] in ('A', 'B', 'C'):
+        return f"CDC {t['tier']}"
+    p = (t.get('watch_priority') or '').replace(' (fungal)', '')
+    return SHORT.get(p, p) or 'WHO listed'
+
+
+def escalating(t, attrib):
+    """The gene that raises this organism's importance, with the number that qualifies it: what
+    share of that gene's candidate-host reads this taxon actually holds. A gene named beside an
+    organism reads as that organism's gene; the share is what stops it."""
+    hits = []
+    for x in attrib:
+        c = dict(x['cands']).get(t['taxon'])
+        if c is None or not x['pool']:
+            continue
+        hits.append((x, c / x['pool']))
+    if not hits:
+        return '-'
+    hits.sort(key=lambda h: (0 if h[0]['verdict'] == 'CONFIRM' else 1, -h[0]['breadth']))
+    x, sh = hits[0]
+    tops = sh >= max(c / x['pool'] for _, c in x['cands'])
+    # Never round a real share to 0% - "0% of host pool" reads as "not present", which is the
+    # opposite of what a small share means.
+    pc = f'{sh:.0%}' if sh >= 0.005 else '<1%'
+    return f"{x['group']}: TOPS host pool ({pc})" if tops else f"{x['group']}: {pc} of host pool"
+
+
+def gene_rank(sm):
+    """MEG_ accession -> row number in the PFI drug-resistance table, so a gene on this slide can
+    be found by scrolling the source document, exactly as the organism `#` allows."""
+    g = triage.load_report(sm)
+    return {r['Gene']: i + 1 for i, r in enumerate(g['drugResistance']['DNA']['data'])}
+
+
+def verdict_driver(sm, listed, attrib):
+    """Why this sample carries the verdict it does, in one clause. MONITOR with nothing enriched
+    and no acquired gene co-located means something quite different from MONITOR with both, and
+    the banner word alone cannot tell them apart."""
+    conf = [t for t in listed if t['verdict'] in ('ESCALATE', 'CONFIRM')]
+    hc = [x for x in attrib if x.get('high_consequence') and x['verdict'] == 'CONFIRM']
+    if conf:
+        t = conf[0]
+        return (f"{t['taxon']} ({badge_for(t)}) reaches {t['verdict']} - "
+                + (f"{len(hc)} high-consequence acquired gene(s) co-located: "
+                   f"{', '.join(x['group'] for x in hc)}" if hc
+                   else 'acquired resistance of a listed class co-located in this sample'))
+    if hc:
+        return (f"no listed organism reaches CONFIRM. Driven by {len(hc)} high-consequence gene(s) "
+                f"({', '.join(x['group'] for x in hc)}), all topped by commensals")
+    enr = [t for t in listed if (t.get('fold') or 0) >= triage.TH['enrichment_fold']]
+    if enr:
+        return (f"no listed organism reaches CONFIRM; {len(enr)} is site-enriched "
+                f"({abbr(enr[0]['taxon'])}) - watch, do not act")
+    return (f"no listed organism is site-enriched, and no gene above threshold is topped by one "
+            f"({len(listed)} present at background level)")
+
+
+def abbr(n):
+    """Genus to initial: 'Staphylococcus aureus' -> 'S. aureus'. The attribution column is the one
+    place where losing the last six characters loses the whole point, so buy them here."""
+    parts = n.split()
+    return f'{parts[0][0]}. {parts[1]}' if len(parts) > 1 and parts[0][:1].isalpha() else n
+
+
+def clip(t, n):
+    """Truncate on a word boundary. Mid-word truncation reads as a rendering bug and makes a
+    reader distrust the numbers next to it."""
+    if len(t) <= n:
+        return t
+    cut = t[:n].rsplit(' ', 1)[0]
+    return cut.rstrip(' ,;-') + ' ...'
+
+
+def sample_rows(sm):
+    """(listed organisms, gene attributions) for one sample, straight from the triage engine."""
+    g = triage.load_report(sm)
+    _, clas = triage.gate_integrity(sm, g)
+    reps = {x: triage.load_report(x) for x in SAMPLES}
+    cl = {}
+    for x, gg in reps.items():
+        _, cl[x] = triage.gate_integrity(x, gg)
+    loads = triage.loads_by_taxon(reps, cl)
+    genes = triage.triage_genes(g)
+    taxa = triage.triage_taxa(sm, g, loads, genes, True)
+    sp = g['indentification_DNA']['speciesData']['data']
+    rank = {r['Scientific Name']: i + 1 for i, r in enumerate(sp)}
+    present = {r['Scientific Name']: int(r['Real Read']) for r in sp}
+
+    order = {'ESCALATE': 0, 'CONFIRM': 1, 'MONITOR': 2, 'NO_ACTION': 3}
+    listed = [t for t in taxa if t['tier'] not in ('-', '') and t['verdict'] != 'NOT_TESTED'
+              and t['real']]
+    # Ordered by ABUNDANCE, which is how a reader scans a species list - not by verdict, which
+    # put a 473-read organism above a 2,300-read one and read as a claim about which matters more.
+    # Any organism the engine escalated is pulled in regardless of where abundance puts it.
+    listed.sort(key=lambda t: -t['real'])
+    top = listed[:LISTED_CAP]
+    hot = [t for t in listed if t['verdict'] in ('ESCALATE', 'CONFIRM') and t not in top]
+    shown = (hot + top)[:LISTED_CAP] if hot else top
+    shown.sort(key=lambda t: -t['real'])
+    return listed, gene_attribution(genes, present), rank, shown
+
+
+def short_why(t):
+    """One line, about THIS organism only, built from its own fields rather than by slicing the
+    engine's prose - a clause cut out of a sentence about the sample reads as a claim about the
+    row it lands next to, which is the error this whole table exists to remove."""
+    f, w = t.get('fold'), t['why']
+    if f == float('inf'):
+        base = 'Detected only in this sample'
+    elif f and f >= triage.TH['enrichment_fold']:
+        base = f'{f:.1f}x enriched vs other sites'
+    elif f:
+        base = f'Not site-enriched ({f:.2f}x)'
+    else:
+        base = 'Above the read floor'
+    if 'below min' in w:
+        base = 'Below the 50-read floor'
+    if 'ABSENT - downgraded' in w:
+        base += '; marker absent'
+    elif 'marker(s)' in w and 'PRESENT' in w:
+        base += '; MARKER PRESENT'
+    if 'estimate inflated' in w:
+        base += '; est. inflated'
+    if 'kitome' in w:
+        base += '; reagent genus'
+    return base
+
+
+def gene_attribution(genes, present):
+    """How far the report allows a resistance gene to be attributed to an organism. Four states,
+    and the distinction that matters is intrinsic vs acquired:
+
+      species      exactly one documented host of this gene is in the sample
+      genus        several, all one genus - the genus is settled, the species is not
+      candidates   several genera - name the most abundant and say how many compete
+      unattributed no documented host present at all: a gene with no organism to hang it on
+
+    An INTRINSIC gene is the strong case. It is part of its genus's own chromosome, so if that
+    genus is present the gene came from it - the only open question is which species. An ACQUIRED
+    gene is the weak case: it is mobile by definition, which is exactly why it cannot be placed.
+    """
+    hints = {k: v for k, v in triage.RULES.get('amr_host_hints', {}).items() if k != '_comment'}
+    out = []
+    for x in genes:
+        if x['verdict'] == 'NO_ACTION':
+            continue
+        h = hints.get(x['group'])
+        intrinsic = x['class'] in ('intrinsic', 'core_essential', 'regulator')
+        cands = []
+        if h:
+            cands = sorted(((n, c) for n, c in present.items()
+                            if any(n.startswith(t + ' ') or n == t for t in h['taxa']) and c),
+                           key=lambda kv: -kv[1])
+        genera = {n.split()[0] for n, _ in cands}
+        tot = sum(c for _, c in cands)
+        # The decision-relevant number is not "who is top" but "what share does the organism a
+        # reader is about to name actually hold". Naming S. aureus for mecA when it holds 0.7% of
+        # the staphylococcal reads is the specific error this column exists to stop.
+        lst = next(((n, c) for n, c in cands if list_badge(n)), None)
+        badge = SHORT.get(list_badge(lst[0]), list_badge(lst[0])) if lst else ''
+        if not cands:
+            state = 'unattributed'
+            who = 'No documented host of this gene is present in this sample'
+        elif len(cands) == 1:
+            state = 'species'
+            who = f'{abbr(cands[0][0])} - the only documented host present'
+        else:
+            state = 'genus' if len(genera) == 1 else 'candidates'
+            top, tc = cands[0]
+            pc = lambda v: f'{v:.0%}' if v >= 0.005 else '<1%'
+            who = f'{abbr(top)} holds {pc(tc/tot)} of the host pool ({len(cands)} spp.)'
+            if lst and lst[0] == top:
+                who = f'{abbr(top)} ({badge}) tops the host pool - {pc(tc/tot)} of {len(cands)} spp.'
+            elif lst:
+                who += f'; listed {abbr(lst[0])} only {pc(lst[1]/tot)}'
+        hits_listed = bool(lst and cands and lst[0] == cands[0][0])
+        out.append({**x, 'state': state, 'who': who, 'intrinsic': intrinsic,
+                    'hits_listed': hits_listed, 'cands': cands, 'pool': tot,
+                    'n_cands': len(cands)})
+    rank = {'species': 0, 'genus': 1, 'candidates': 2, 'unattributed': 3}
+    # high_consequence FIRST, before breadth. Sorting a briefing table by coverage puts a 98%
+    # commensal erm gene above mecA at 90.9% - technically ranked, operationally backwards.
+    # A gene that CAN be pinned to a listed organism outranks one that cannot, whatever its
+    # coverage. An attributable intrinsic gene is the most actionable row on the slide, and it was
+    # being sorted off the table by commensal genes with higher breadth.
+    # Verdict outranks everything: high_consequence marks which gene matters IF real, not whether
+    # it is real, so letting it jump a tier puts a MONITOR-grade call above three CONFIRMs.
+    out.sort(key=lambda r: (0 if r['verdict'] == 'CONFIRM' else 1,
+                            0 if r.get('high_consequence') else 1,
+                            0 if r['hits_listed'] else 1,
+                            rank[r['state']], -r['breadth']))
+    return out
+
+
+# Every string here renders at Arial 12 minimum (MIN_PT floors _style), so the box holds about
+# five lines. These are written to that budget rather than trimmed to it afterwards.
 ACTIONABLE = {
     'WBM156': ('MONITOR', AMBER,
-               'Profile is human oral/salivary flora plus water-associated organisms - exactly what a '
-               'restroom tap should look like. No threat agent, no acquired AMR of consequence '
-               '(13 resistance classes, all intrinsic/ribosomal).\n'
-               'WHY NOT "NO ACTION": three WHO-priority organisms are present - S. maltophilia, '
-               'P. aeruginosa and P. rettgeri, the last of them only in this sample. None is enriched '
-               'against the other four swabs, so this is plumbing biofilm rather than a site event, but '
-               'a named priority organism is not nothing.\n'
-               'CAVEAT: 91.3% of reads were host; only 622k classified reads survived - ~5x less microbial '
-               'data than WBM179. The short hit list is a sensitivity limit, not a clean tap.'),
-    'WBM174': ('MONITOR', AMBER,
-               'Skin-flora dominated (C. acnes 34.2%) - a heavily hand-touched surface behaving normally. '
-               'S. aureus with blaZ + ermC is community-normal carriage, not a resistance event.\n'
-               'ACTION: none beyond routine touchpoint cleaning. The botulism call is refuted on both the '
-               'organism and the toxin gene, and should be closed out rather than escalated.'),
-    'WBM179': ('MONITOR', AMBER,
-               'Deepest classified dataset (3.1M reads) and still nothing threat-level. Oral + skin flora '
-               'transfer from fingers; 21 AMR classes but no mecA, no ESBL.\n'
-               'ACTION: none. The V. cholerae call is refuted at read level - close it out. This sample is '
-               'the best negative-control-like baseline in the batch for comparison.'),
+               'Human oral/salivary flora plus water-associated organisms - what a restroom tap should '
+               'look like. No threat agent; 13 resistance classes, none acquired and of consequence.\n'
+               'WHY "MONITOR" NOT "NO ACTION": P. rettgeri (WHO critical) is seen in NO other swab - '
+               '310 rpm against zero elsewhere - so it is site-specific, not batch background. It '
+               'carries no gene of consequence, hence watch-and-repeat rather than act.'),
+    'WBM174': ('NO ACTION', GREEN,
+               'Skin-flora dominated (C. acnes 34.2%) - a hand-touched surface behaving normally. The '
+               'staphylococcal genes above are community-normal carriage of the genus, not of S. aureus, '
+               'which holds 0.7% of the staphylococcal reads.\n'
+               'WHY "NO ACTION": no listed organism is site-enriched, and every gene above threshold is '
+               'topped by a commensal. Botulism is refuted on organism (11 reads) and toxin (bont absent).'),
+    'WBM179': ('NO ACTION', GREEN,
+               'Deepest classified dataset (3.1M reads) and nothing threat-level. Oral + skin flora from '
+               'fingers; 21 AMR classes, no mecA and no ESBL. mecI without mecA is a regulator, not '
+               'resistance.\n'
+               'WHY "NO ACTION": K. aerogenes at 3.0x is below the 5x enrichment bar, and every gene '
+               'above threshold is topped by a commensal. Best baseline in the batch.'),
     'WBM185': ('INVESTIGATE', RED,
-               'Highest AMR burden in the batch: 90 genes across 21 classes, including mecA at 90.9% '
-               'breadth and CTX-M at 82.9%.\n'
-               'ACTION 1: resolve the mecA host. S. aureus (2,300 reads) and coagulase-negative '
-               'staphylococci (S. hominis 11.2%) are both abundant, and assembly did NOT recover mecA, so '
-               '"MRSA" cannot be claimed from this data. Culture is now the only way to settle it.\n'
-               'ACTION 2: enhanced disinfection audit of check-in kiosk touchscreens; re-swab with a '
-               'culture arm to obtain isolates for AST.'),
+               'Highest AMR burden in the batch: 90 genes / 21 classes, mecA at 90.9% and CTX-M at 82.9%.\n'
+               'ACTION: resolve the mecA host by culture with AST (antimicrobial susceptibility testing). '
+               'It is staphylococcal, but S. aureus holds 0.7% of the staphylococcal reads against '
+               'S. hominis at 52% - calling this MRSA assigns the gene to one of the rarest candidates. '
+               'No listed ORGANISM drives this verdict; the three genes do.'),
     'WBM232': ('INVESTIGATE', RED,
-               'The one operationally significant finding in the batch. A. baumannii at 4.72% with a '
-               'depth-normalised load 6-43x above every other site - real site enrichment, not reagent '
-               'background. 326 virulence-factor rows, collapsing to 121 distinct factors.\n'
-               'WHY NOT "ESCALATE": that tier is reserved for a CDC Category A/B/C agent with its '
-               'confirmatory marker present. A. baumannii is a WHO-priority hospital pathogen, not a '
-               'declared threat agent. The response below is unchanged; only the label is.\n'
-               'ACTION 1: re-swab T4 trolley handles WITH A CULTURE ARM - metagenomics cannot give an '
-               'antibiogram.\n'
-               'ACTION 2: treat CTX-M / LpxA / AdeJ as a hypothesis to test by culture, not a confirmed '
-               'XDR organism - next slide.\n'
-               'ACTION 3: disinfection frequency review at T4 departure rows 5-6.'),
+               'The one operationally significant finding. A. baumannii at 4.72%, load 6-43x above every '
+               'other site - real enrichment, not reagent background. It TOPS the host pool of both '
+               'acquired genes (21% of 63 candidates): best-supported host, not a proven one.\n'
+               'ACTION: re-swab T4 trolley handles WITH A CULTURE ARM - metagenomics cannot give an '
+               'antibiogram, and lpxA presence is not colistin resistance without a mutation call. Not '
+               'ESCALATE: that needs a CDC agent with its marker; A. baumannii is WHO-critical.'),
 }
 
 CAT_A = [
     ('Bacillus anthracis', 'NEGATIVE',
-     'B. cereus group present (WBM174 22 rds, WBM185 43 rds, both >40% unique, correct GC). '
+     'B. cereus group present (WBM174 22 rds, WBM185 43 rds). '
      'Excluded at PLASMID level: zero pXO1 (pagA/lef/cya/atxA), zero pXO2 (capA-E). '
      'Only VFDB hits are chromosomal isdC and GBAA_RS23245, shared across the whole B. cereus group.'),
     ('Clostridium botulinum', 'NEGATIVE',
-     'WBM174: 11 reads that collapse to ONE unique sequence - an amplification artifact, not an organism. '
+     'WBM174: 11 species-specific reads, far below the 50-read floor. '
      'No botulinum neurotoxin (bont) gene in any sample.'),
     ('Yersinia pestis', 'NEGATIVE',
      'No Yersinia of any species in any sample. The ybtT/irp2 hits are yersiniabactin siderophore genes '
@@ -143,7 +324,7 @@ CAT_BC = [
      'NOT BRUCELLOSIS - this is Ochrobactrum anthropi, renamed into Brucella in 2020. Ubiquitous reagent '
      'contaminant, carrying a false "Human Infection: Y" flag in every sample. Now separable by gene, '
      'not just by name: btpA/btpB are Brucella TIR effectors that Ochrobactrum lacks. Absent here.'),
-    ('B', 'Vibrio cholerae', 'WBM179, 11 reads', 'REFUTED - 1 unique molecule, no cholera toxin genes.'),
+    ('B', 'Vibrio cholerae', 'WBM179, 11 reads', 'REFUTED - below the 50-read floor, no cholera toxin genes.'),
     ('B', 'Clostridium perfringens', 'WBM174 84, WBM185 248, WBM232 29 rds',
      'Present at trace level. Ubiquitous soil/gut anaerobe; no epsilon-toxin (etx) gene detected.'),
     ('B', 'Escherichia coli', '62-118 real reads (est. up to 12,076)',
@@ -301,27 +482,27 @@ def s_method(prs):
           'Host depletion, then Kraken2 classification with Bracken abundance re-estimation\n'
           'AMR called against MEGARes; virulence factors against VFDB\n'
           'Reports generated by PFI software v5.1.2 / database v5.1.1\n\n'
-          'Verification performed for this briefing:\n'
-          '3,678 of 3,698 extracted FASTQs match their reported read counts exactly (the 20 '
-          'differences are name normalisation only). Resistance and virulence tables match the '
-          'HTML reports row for row.',
+          'Scope of this briefing:\n'
+          'Every claim on these slides is derived from the PFI HTML report alone - the same '
+          'document you were sent. Nothing here depends on the raw FASTQs or on a de novo '
+          'assembly, so any conclusion drawn can be checked against the report itself.',
           size=14, line=1.25, space_after=6)
     txbox(s, 6.9, 1.45, 6.0, 0.3, 'THREE THINGS THAT WILL MISLEAD YOU', size=13, bold=True, color=RED)
     txbox(s, 6.9, 1.8, 6.0, 3.9,
           '1. Judge on Real Read, not Abundance. Abundance and Estimate Read are Bracken '
           'redistributions and can be wildly inflated - S. agalactiae in WBM174 has 29 species-specific '
           'reads but an estimate of 8,301.\n\n'
-          '2. A read count is not a molecule count. These libraries are low-biomass and heavily '
-          'amplified: only 27-36% of reads are unique. Several trace calls collapse to a single unique '
-          'sequence.\n\n'
+          '2. A gene hit is not an organism. MEGARes and VFDB rows carry no organism column, so no '
+          'resistance or virulence gene in this report is attributable to any species in it.\n\n'
           '3. The "Human Infection: Y" flag is unreliable at the edges - it fires on renamed '
           'environmental organisms.',
           size=14, line=1.25, space_after=6)
     txbox(s, 0.5, 5.85, 12.4, 1.2,
-          'Discriminators applied throughout: (a) unique-read fraction vs the library baseline; '
-          '(b) observed GC vs expected genome GC; (c) depth-normalised load (reads per million '
-          'classified) across all five sites - a real site finding is enriched in one sample, a reagent '
-          'contaminant is flat everywhere; (d) for B. anthracis, presence of the pXO1/pXO2 plasmid '
+          'Discriminators applied throughout: (a) Real Read against a 50-read floor, judged separately '
+          'from the Bracken estimate; (b) depth-normalised load (reads per million classified) across '
+          'all five sites - a real site finding is enriched in one sample, a reagent contaminant is flat '
+          'everywhere; (c) breadth of the reference gene rather than depth, so a conserved fragment read '
+          'deeply does not pass as a whole gene; (d) for B. anthracis, presence of the pXO1/pXO2 plasmid '
           'markers rather than chromosomal genes shared across the B. cereus group.',
           size=12, color=GREY, line=1.2)
 
@@ -351,9 +532,9 @@ def s_qc(prs, Q):
           'less microbial data than WBM179. Its shorter hit list is a detection-limit artifact, not '
           'evidence of a cleaner tap.\n\n'
           'Unclassified fractions of 72-90% are normal for environmental swabs against a clinical '
-          'database. We probed the unclassified bin of all five samples directly (GC spectrum plus '
-          'over-represented 25-mers) and found no dominant unknown organism - top k-mers sit at '
-          '0.01-0.02% after removing a poly-G artifact and Illumina adapter read-through.',
+          'database, but they are the batch\'s largest blind spot and the report says nothing about '
+          'what is in them. Anything absent from the PFI database lands here and is invisible to every '
+          'slide that follows.',
           size=14, line=1.25, space_after=7)
 
 
@@ -366,14 +547,11 @@ def s_caveats(prs):
          'formally separated from reagent background. We compensated with a cross-sample kitome analysis '
          '(216 core taxa shared by all 5 samples; 50 known contaminant genera; 46 with abundance-vs-depth '
          'correlation rho <= -0.6, e.g. P. putida at rho = -1.00) - but a blank would have been better.'),
-        ('Heavy amplification', AMBER, 1.15,
-         'Unique-read fraction is only 27-36% and is flat across read-count bins. Any taxon far below its '
-         "sample's baseline is amplified single molecules, not an organism. This is the test that refuted "
-         'C. botulinum, V. cholerae and L. pneumophila.'),
-        ('Sequencing artifacts', GREY, 1.15,
-         'Both R2 files carry a poly-G 25-mer spike (~0.14% of reads) - standard 2-colour-chemistry '
-         'no-signal. WBM156 shows Illumina adapter read-through at 0.26% of reads (WBM179 at 0.02%), '
-         'indicating short inserts from degraded or low-input DNA. Trim before any assembly or k-mer work.'),
+        ('A read count is not a molecule count', AMBER, 1.5,
+         'The report gives read counts only. It cannot show whether a taxon\'s reads are distinct '
+         'molecules or repeated copies of one amplified fragment, and both look identical in the table. '
+         'Trace calls are therefore refuted on the 50-read floor and on marker absence - never on '
+         'molecule counts, which this document does not contain.'),
         ('AMR genes are called off reads', RED, 1.5,
          'The PFI pipeline reports resistance genes without linking them to an organism, and MEGARes '
          'holds many near-identical alleles of the same gene, so ONE true gene lights up SEVERAL MEG_ '
@@ -443,37 +621,91 @@ def s_sample(prs, sm, Q, SP, AM, VF):
           f"{AM[sm][0]} AMR genes / {AM[sm][1]} classes   |   {VF[sm]} VF hits",
           size=12, color=BLUE, bold=True)
 
-    txbox(s, 0.5, 1.82, 5.9, 0.28, 'TOP SPECIES BY ABUNDANCE', size=12.5, bold=True, color=BLUE)
-    rows = [['Species', 'Ab %', 'Real', 'Est.']]
-    for x in SP[sm][:8]:
-        rows.append([x['name'], x['ab'], f"{int(x['real']):,}", f"{int(x['est']):,}"])
-    table(s, 0.5, 2.15, 5.9, rows, [3.21, 0.75, 0.95, 0.99], sizes=(12, 12), row_h=0.27)
+    listed, attrib, rank, shown = sample_rows(sm)
+    grank = gene_rank(sm)
 
-    txbox(s, 6.7, 1.82, 4.6, 0.28, 'FLAGGABLE SPECIES / SIGNALS', size=12.5, bold=True, color=RED)
-    txbox(s, 11.3, 1.82, 1.53, 0.28, 'THREAT LIST', size=9.5, bold=True, color=BLUE,
-          align=PP_ALIGN.CENTER)
-    cmap = {'red': RED, 'amber': AMBER, 'grey': GREY}
-    y = 2.15
-    for name, ev, note, lvl in FLAGGED[sm]:
-        rgb = cmap[lvl]
-        badge = list_badge(name)
-        wide = 4.35 if badge else 5.88          # leave the right margin clear for the chip
-        dot = s.shapes.add_shape(9, Inches(6.72), Inches(y + 0.05), Inches(0.11), Inches(0.11))
-        dot.fill.solid(); dot.fill.fore_color.rgb = rgb
-        dot.line.fill.background(); dot.shadow.inherit = False
-        head = f'{name}   -   {ev}'
-        # The chip steals 1.5" from this row, so a long name plus a long evidence string wraps
-        # into the note line below it. Shrink rather than wrap.
-        txbox(s, 6.95, y - 0.03, wide, 0.24, head,
-              size=13 if len(head) <= 46 or not badge else 11.5, bold=True, color=rgb)
-        txbox(s, 6.95, y + 0.24, 5.88, 0.4, note, size=12, color=INK, line=1.1)
-        if badge:
-            chip(s, 11.4, y - 0.02, 1.43, 0.23, badge, BLUE, size=9.5)
-        y += 0.62
+    # One line naming what actually produced the banner verdict. Without it MONITOR reads as a
+    # judgement; with it, MONITOR is a rule the reader can disagree with.
+    txbox(s, 0.5, 1.62, 12.33, 0.22, 'VERDICT DRIVER:  ' + verdict_driver(sm, listed, attrib),
+          size=11.5, bold=True, color=vcolor)
 
-    txbox(s, 0.5, 5.35, 12.33, 0.28, f'WHAT IS ACTIONABLE  -  {verdict}',
+    txbox(s, 0.5, 1.90, 12.33, 0.28, 'CDC / WHO LISTED ORGANISMS PRESENT', size=12.5, bold=True,
+          color=RED)
+    vc = {'ESCALATE': RED, 'CONFIRM': RED, 'MONITOR': AMBER, 'NO_ACTION': GREY}
+    rows = [['#', 'Organism', 'List', 'Reads (ab.)', 'Assessment', 'Co-located gene (MEGARes)']]
+    colors, bolds = {}, {}
+    for i, t in enumerate(shown, start=1):
+        rows.append([str(rank.get(t['taxon'], '')), t['taxon'], badge_for(t),
+                     f"{t['real']:,} ({t['abundance']})", clip(short_why(t), 52),
+                     clip(escalating(t, attrib), 48)])
+        colors[(i, 2)] = BLUE
+        colors[(i, 1)] = vc.get(t['verdict'], INK)
+        colors[(i, 5)] = AMBER
+        bolds[(i, 1)] = t['verdict'] in ('ESCALATE', 'CONFIRM')
+    table(s, 0.5, 2.18, 12.33, rows, [0.42, 2.45, 0.92, 1.32, 3.35, 3.87], sizes=(11, 11),
+          row_h=0.32, colors=colors, bolds=bolds)
+    n_more = max(0, len(listed) - len(shown))
+    txbox(s, 0.5, 4.12, 12.33, 0.2,
+          (f'+{n_more} further listed - full set in the triage report.   ' if n_more else '')
+          + 'Column meanings on the "How to read a sample slide" page.',
+          size=10, color=GREY)
+
+    txbox(s, 0.5, 4.42, 12.33, 0.28, 'RESISTANCE GENES  -  AND WHO THEY CAN BE ATTRIBUTED TO',
+          size=12.5, bold=True, color=BLUE)
+    rows = [['#', 'Gene', 'Source', 'Cov / Depth', 'Most likely host organism']]
+    colors, bolds = {}, {}
+    scol = {'species': GREEN, 'genus': AMBER, 'candidates': AMBER, 'unattributed': GREY}
+    for i, x in enumerate(attrib[:GENE_CAP], start=1):
+        rows.append([str(grank.get(x['allele'], '')), x['group'], 'MEGARes',
+                     f"{x['breadth']:.1f}% / {x['depth']:.1f}x", clip(x['who'], 84)])
+        colors[(i, 4)] = scol[x['state']]
+        colors[(i, 0)] = colors[(i, 1)] = RED if x['verdict'] == 'CONFIRM' else INK
+        bolds[(i, 1)] = x['verdict'] == 'CONFIRM'
+    table(s, 0.5, 4.70, 12.33, rows, [0.42, 1.35, 1.0, 1.45, 8.11], sizes=(11, 11),
+          row_h=0.32, colors=colors, bolds=bolds)
+    n_gm = max(0, len(attrib) - GENE_CAP)
+    txbox(s, 0.5, 6.02, 12.33, 0.2,
+          'BOLD RED = CONFIRM; plain = MONITOR.   All rows MEGARes; VFDB markers appear above.'
+          + (f'   +{n_gm} more above threshold.' if n_gm else ''), size=10, color=GREY)
+
+    txbox(s, 0.5, 6.28, 12.33, 0.26, f'WHAT IS ACTIONABLE  -  {verdict}',
           size=12.5, bold=True, color=vcolor)
-    txbox(s, 0.5, 5.66, 12.33, 1.6, action, size=12, line=1.15, space_after=3)
+    txbox(s, 0.5, 6.52, 12.33, 0.95, action, size=10.5, line=1.06, space_after=1)
+
+
+def s_howtoread(prs):
+    s = blank(prs)
+    title(s, 'How to read a sample slide',
+          'The same columns, the same rules, on all five samples')
+    txbox(s, 0.5, 1.36, 12.33, 0.26, 'THREE DIFFERENT PERCENTAGES APPEAR. THEY HAVE DIFFERENT '
+          'DENOMINATORS.', size=12.5, bold=True, color=RED)
+    rows = [['Number', 'Denominator', 'Example: WBM185, S. maltophilia / CTX-M'],
+            ['Abundance %  (organism)', 'Species reads / all classified reads',
+             '0.69%  -  2,090 of 2,006,566 classified reads'],
+            ['Coverage %  (gene)', 'Bases of the REFERENCE GENE covered / gene length. Says nothing '
+             'about how much organism is present', '82.9%  -  of the CTX-M reference sequence'],
+            ['Host-pool share %  (link)', "This organism's reads / reads of EVERY documented host of "
+             'that gene here. THE number for how likely the gene is this organism\'s',
+             '5.9%  -  of the 77 organisms that could carry CTX-M']]
+    table(s, 0.5, 1.68, 12.33, rows, [2.4, 5.4, 4.53], sizes=(11.5, 11), row_h=0.64,
+          colors={(i, 0): BLUE for i in (1, 2, 3)}, bolds={(i, 0): True for i in (1, 2, 3)})
+
+    txbox(s, 0.5, 4.28, 12.33, 0.26, 'WHAT THE OTHER COLUMNS MEAN', size=12.5, bold=True, color=BLUE)
+    rows = [['Column', 'Meaning'],
+            ['#', "Row number in the PFI report's own table - scroll to it to check any line"],
+            ['Bold red', 'CONFIRM: real and actionable. Plain text is MONITOR'],
+            ['Not site-enriched', 'Depth-normalised load is NOT >=5x every other swab - present '
+             'batch-wide, so background rather than a site event'],
+            ['Co-located gene  /\nMost likely host', "The strongest gene whose documented host range "
+             "covers this organism's genus, and the share of that gene's host pool the organism "
+             'holds. A HIGH share escalates the organism; a LOW share is why a gene sitting beside a '
+             'name is not that organism\'s gene'],
+            ['Two databases', 'MEGARes (drug resistance) has NO organism column - hence a host pool '
+             'instead of a species. VFDB (virulence) DOES name a reference pathogen, so virulence '
+             'markers report against the organism and appear in Assessment, not here']]
+    table(s, 0.5, 4.58, 12.33, rows, [2.1, 10.23], sizes=(11.5, 11), row_h=0.46,
+          colors={(i, 0): BLUE for i in range(1, 6)},
+          bolds={(i, 0): True for i in range(1, 6)})
 
 
 def s_botulism(prs):
@@ -504,8 +736,7 @@ def s_botulism(prs):
     txbox(s, 0.5, 4.4, 12.33, 0.28, 'WHAT THE WBM174 DATA ACTUALLY SHOWS', size=13, bold=True, color=GREEN)
     rows = [['Test', 'Result', 'Interpretation'],
             ['Species-specific reads', '11', 'Below any credible detection threshold to begin with'],
-            ['Unique molecules after dedup', '1', 'All 11 reads are copies of ONE fragment - an '
-             'amplification artifact, not an organism'],
+            ['Estimate Read', '37', 'Even the inflated Bracken estimate stays far below the floor'],
             ['bont toxin gene (VFDB)', '0 reads', 'Zero in WBM174 and zero in all four other samples'],
             ['Other Clostridium virulence hits', 'C. perfringens only',
              'fbpA, tadA, nagH/nagI adhesins in WBM185 - no neurotoxin of any kind anywhere in the batch']]
@@ -537,7 +768,7 @@ def s_wbm185_evidence(prs):
             ['MECI', 'MEG_3803', '65.50%', '5.66x', 'mecI is the REPRESSOR of the mec operon - co-occurrence supports a genuine SCCmec element (mecR1 not detected)'],
             ['CTX', 'MEG_2430', '82.88%', '7.25x', 'BEST ALLELE of the blaCTX-M family - the representative ESBL call'],
             ['CTX', 'MEG_2435', '54.14%', '2.71x', 'Partial cross-mapping onto a second CTX-M allele'],
-            ['BLAZ', 'MEG_1330 / 1331', '70.65% / 64.73%', '8.17x / 4.24x', 'Staphylococcal penicillinase - ordinary carriage, and the one gene that DID assemble'],
+            ['BLAZ', 'MEG_1330 / 1331', '70.65% / 64.73%', '8.17x / 4.24x', 'Staphylococcal penicillinase - ordinary carriage across the whole genus, not an S. aureus finding'],
             ['MUPA', 'MEG_4089', '90.18%', '11.70x', 'High-level mupirocin resistance (alternate IleRS) - the gene that would defeat decolonisation']]
     colors = {(1, 0): RED, (1, 4): RED, (5, 0): RED, (5, 4): RED, (8, 0): RED, (8, 4): RED}
     bolds = {(1, 0): True, (1, 4): True, (5, 0): True, (5, 4): True, (8, 0): True, (8, 4): True}
@@ -550,45 +781,12 @@ def s_wbm185_evidence(prs):
           'batch AT READ LEVEL.',
           size=12, line=1.12)
     txbox(s, 6.78, 6.12, 6.05, 0.26, 'WHY IT STILL IS NOT "MRSA"', size=12, bold=True, color=RED)
-    txbox(s, 6.78, 6.40, 6.05, 0.95,
-          'Read-level calling carries no linkage, so mecA is tied to no organism - and S. aureus '
-          '(2,300 rds) and CoNS (S. hominis 11.2%) are both abundant. Assembly did not close the gap '
-          '- see next slide.',
-          size=12, line=1.12)
-
-
-def s_assembly(prs):
-    s = blank(prs)
-    title(s, 'The assembly cross-check - and what it could not confirm',
-          'megahit on host-depleted reads; abricate vs megares, card, resfinder, ncbi and plasmidfinder')
-    rows = [['Sample', 'Contigs', 'Total', 'N50', 'AMR genes recovered on contigs', 'mecA / CTX-M?'],
-            ['WBM185', '57,627', '54.9 Mb', '849 bp',
-             "blaZ + blaR1 + blaI penicillinase operon (97-99% id, full length, GC 25.3%), msrA, mphC, "
-             "lnuA, fusB, aph(3')-Ia, ant(4')-Ia, ermX, qacA/C/J/R  +  12 staphylococcal plasmid replicons",
-             'NO - neither, in any of the 5 databases'],
-            ['WBM232', '10,837', '15.9 Mb', '26,611 bp',
-             "blaI, ermX, ant(3'')-IIa, mgrA  -  and no plasmid replicons at all",
-             'NO - no CTX-M, no lpxA, no adeJ']]
-    colors = {(1, 5): RED, (2, 5): RED, (1, 0): BLUE, (2, 0): BLUE}
-    table(s, 0.5, 1.5, 12.33, rows, [0.95, 0.9, 0.85, 0.95, 5.85, 2.83], sizes=(12, 12), row_h=1.0,
-          colors=colors, bolds={(1, 5): True, (2, 5): True})
-    txbox(s, 0.5, 3.75, 12.33, 0.28, 'WHY THIS IS INFORMATIVE RATHER THAN A FAILED RUN',
-          size=13, bold=True, color=BLUE)
-    txbox(s, 0.5, 4.05, 12.33, 3.0,
-          "WBM185's N50 of 849 bp is what an even, diverse community with no dominant organism looks like; "
-          'WBM232 assembles far better because C. acnes at 57.4% gives deep uniform coverage.\n\n'
-          'The assembly demonstrably works: the staphylococcal penicillinase operon came out full length at '
-          '97-99% identity on a 22x contig of GC 25.3%, on staphylococcal plasmid replicons (rep7a/pSTE1, '
-          'rep10/pNE131, repUS46, rep21/pWBG754). blaZ IS therefore attributable.\n\n'
-          'mecA and CTX-M did not assemble at all - likeliest because their read pools split across '
-          'divergent alleles from several staphylococcal species, so no consensus is reached, exactly as '
-          'the multi-allele MEGARes pattern predicts. Mapping the per-taxon read sets onto the assembled '
-          'AMR contigs returns ZERO reads at MAPQ >= 20 for every taxon, against 62 per 2M pairs from the '
-          'unfiltered clean reads: the classifier never assigned these mobile elements to a species.\n\n'
-          'CONCLUSION: gene presence is well supported at read level; HOST ATTRIBUTION IS NOT RESOLVABLE '
-          'FROM THIS DATASET. Culture with AST is the only way to tell MRSA from methicillin-resistant '
-          'skin staphylococci.',
-          size=13, line=1.13, space_after=3)
+    txbox(s, 6.78, 6.40, 6.05, 1.0,
+          'MRSA = methicillin-resistant Staphylococcus aureus - the SPECIES is half the term. '
+          'Read-level calling carries no linkage, and S. aureus is only 0.73% of the staphylococcal '
+          'reads here (2,300 of 313,026; S. hominis alone 164,436). Naming MRSA would assign mecA to '
+          'the rarest candidate. Only culture with AST (antimicrobial susceptibility testing) settles it.',
+          size=11.5, line=1.1)
 
 
 def s_wbm232_evidence(prs):
@@ -647,7 +845,7 @@ def s_cat_a(prs):
           colors=colors, bolds=bolds)
     txbox(s, 0.5, 6.3, 12.4, 0.7,
           'The anthrax exclusion is the important one: B. cereus group IS genuinely present in WBM174 and '
-          'WBM185 at good unique-read fractions and correct GC. It is excluded as B. anthracis because '
+          'WBM185, above the read floor. It is excluded as B. anthracis because '
           'both virulence plasmids are entirely absent - and the one capA hit in the data belongs to the '
           'S. aureus capsule operon, not the pXO2 capsule.', size=12, color=GREY, line=1.2)
 
@@ -733,44 +931,55 @@ def s_amr(prs, AM):
           'coagulase-negative staphylococci (S. hominis 11.2%, S. haemolyticus 1.8%, S. epidermidis 4.1%) '
           'does not tell you whose mecA it is - and methicillin-resistant S. epidermidis is an ordinary '
           'skin organism, whereas MRSA on a check-in kiosk is a different conversation.\n\n'
-          'We assembled both flagged samples with megahit to close this gap. blaZ was successfully placed '
-          'on a staphylococcal plasmid; mecA, CTX-M, lpxA and adeJ did not assemble at all, so their host '
-          'organism remains genuinely unresolved. Culture with AST is the way to settle it.',
+          'Nothing in this report can close that gap. The resistance table has no organism column, and '
+          'the species table has no gene column - there is no field in either that joins them. The host '
+          'of mecA, CTX-M, lpxA and adeJ is genuinely unresolved, and culture with AST is the way to '
+          'settle it.',
           size=13, line=1.22, space_after=8)
 
 
 def s_recs(prs):
     s = blank(prs)
     title(s, 'Recommendations')
+    # Three items, full width, so point 1 has room to show its arithmetic. Points on the MRSA
+    # wording and on reporting Real Read were removed 2026-08-12 at the user's request; the MRSA
+    # caveat is carried in full on the WBM185 sample and evidence slides, and the Real Read point
+    # is the first of the three traps on the method slide, so neither claim is lost.
     recs = [
         ('1', 'Re-swab WBM232 (T4 trolley handles) with a culture arm', RED,
-         'Metagenomics cannot produce an antibiogram, and at 0.25x genome coverage it cannot call the '
-         'lpxA / gyrA point mutations either. An A. baumannii isolate is needed for AST.'),
-        ('2', 'Do not use the word "MRSA" for WBM185 on current evidence', RED,
-         'Read-level mecA is strong (90.9% breadth) but assembly could not recover it, so it cannot be '
-         'attributed to S. aureus rather than to the abundant coagulase-negative staphylococci. Note '
-         'mupA at 90.2% on the same surface - if decolonisation is proposed, mupirocin is the wrong drug.'),
-        ('3', 'Add an RNA library to the protocol', AMBER,
+         'Metagenomics cannot produce an antibiogram. It also cannot call the point mutations that '
+         'matter here, and the arithmetic shows why: 6,496 A. baumannii reads x 150 bp = ~0.97 Mb '
+         'spread over a ~3.9 Mb genome, so the organism is sequenced at only ~0.25x on average - '
+         'roughly one base in four is seen ONCE, and most positions are not seen at all.\n'
+         'gyrA (99.5% cov, 120.7x) and lpxA (51.7% cov, 1.9x) ARE both detected in WBM232. That '
+         'changes nothing: every A. baumannii carries them, so PRESENCE is the default state and '
+         'resistance needs a specific MUTATION. The gyrA depth is community-wide - gyrA is a '
+         'housekeeping gene in essentially every bacterium in the swab, and A. baumannii contributes '
+         'a small fraction of those reads, which cannot be separated out. An isolate is needed.'),
+        ('2', 'Add an RNA library to the protocol', AMBER,
          'Four of six Category A agents and every respiratory virus of surveillance interest are RNA '
-         'viruses. The current assay cannot see them at all. This is the single largest gap.'),
-        ('4', 'Include a blank extraction control in every batch', AMBER,
-         'Without one, no trace call below ~100 reads can be formally cleared. This would have settled '
-         'the botulism and cholera calls in minutes instead of days.'),
-        ('5', 'Report Real Read and gene breadth alongside Abundance', GREY,
-         'Bracken redistribution inflated several trace organisms by 30-100x, and collapsing the multiple '
-         'MEG_ alleles of one gene into a single best-allele row would stop the double-counting.'),
+         'viruses. The current assay cannot see them at all - they are reported NOT_TESTED, never '
+         'negative. This is the single largest gap in the batch.'),
+        ('3', 'Include a blank extraction control in every batch', AMBER,
+         'Without one, no trace call below ~100 reads can be formally cleared as reagent background. '
+         'A blank would have settled the botulism and cholera calls in minutes rather than by '
+         'cross-sample argument.'),
     ]
     y = 1.5
     for n, head, rgb, body in recs:
-        c = s.shapes.add_shape(9, Inches(0.5), Inches(y + 0.02), Inches(0.34), Inches(0.34))
+        c = s.shapes.add_shape(9, Inches(0.5), Inches(y), Inches(0.36), Inches(0.36))
         c.fill.solid(); c.fill.fore_color.rgb = rgb
         c.line.fill.background(); c.shadow.inherit = False
-        p = c.text_frame.paragraphs[0]; p.alignment = PP_ALIGN.CENTER
-        r = p.add_run(); r.text = n
+        pgh = c.text_frame.paragraphs[0]; pgh.alignment = PP_ALIGN.CENTER
+        r = pgh.add_run(); r.text = n
         _style(r, 13, True, WHITE)
-        txbox(s, 1.0, y, 5.6, 0.5, head, size=13, bold=True, color=rgb, line=1.05)
-        txbox(s, 6.75, y, 6.08, 0.9, body, size=12, line=1.18)
-        y += 1.0
+        txbox(s, 1.0, y - 0.02, 11.83, 0.3, head, size=13.5, bold=True, color=rgb)
+        # Advance by what this item actually occupies, not a fixed step: a fixed step left a
+        # half-slide gap under the short items and read as a missing recommendation.
+        lines = sum(max(1, -(-len(para) // 150)) for para in body.split('\n'))
+        h = lines * 0.20
+        txbox(s, 1.0, y + 0.3, 11.83, h + 0.1, body, size=12, line=1.08, space_after=2)
+        y += 0.34 + h + 0.34
 
 
 def build():
@@ -782,13 +991,13 @@ def build():
     s_qc(prs, Q)
     s_caveats(prs)
     s_topspecies(prs, SP)
+    s_howtoread(prs)
     for sm in SAMPLES:
         s_sample(prs, sm, Q, SP, AM, VF)
         if sm == 'WBM174':
             s_botulism(prs)
         elif sm == 'WBM185':
             s_wbm185_evidence(prs)
-            s_assembly(prs)
         elif sm == 'WBM232':
             s_wbm232_evidence(prs)
     s_cat_a(prs)
