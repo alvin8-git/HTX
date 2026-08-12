@@ -160,15 +160,20 @@ WBM232's *A. baumannii* reaches `CONFIRM` on evidence that was already in the da
 equivalent, so a reader comparing the two saw an apparent downgrade that was really a change of
 subject. `sample_verdict()` rolls the rows up:
 
-| Sample | Deck (human) | Engine |
-|---|---|---|
-| WBM156 | NO ACTION | **MONITOR** |
-| WBM174 | MONITOR | MONITOR |
-| WBM179 | MONITOR | MONITOR |
-| WBM185 | INVESTIGATE | INVESTIGATE |
-| WBM232 | ESCALATE | **INVESTIGATE** |
+| Sample | Deck (human) | Engine (at the time) | Engine (current) |
+|---|---|---|---|
+| WBM156 | NO ACTION | **MONITOR** | MONITOR |
+| WBM174 | MONITOR | MONITOR | **NO ACTION** |
+| WBM179 | MONITOR | MONITOR | **NO ACTION** |
+| WBM185 | INVESTIGATE | INVESTIGATE | INVESTIGATE |
+| WBM232 | ESCALATE | **INVESTIGATE** | INVESTIGATE |
 
-Three of five identical. WBM156 differs because the engine reports watchlist organisms
+The third column is the 2026-08-12 rule change: `MONITOR` now needs a positive driver — a
+site-enriched listed organism, or one topping the host pool of an acquired `CONFIRM` gene. WBM174
+and WBM179 have neither. See
+[`reference_triage.md`](reference_triage.md#sample-verdict).
+
+Three of five identical against the deck at the time. WBM156 differs because the engine reports watchlist organisms
 (*S. maltophilia*, *P. aeruginosa*, *Providencia*) that a human read as ordinary water flora on a
 restroom tap. WBM232 differs by design: a watchlist organism cannot drive a sample past
 `INVESTIGATE`.

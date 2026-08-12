@@ -47,6 +47,14 @@ For a batch, name every sample in one command. **This matters**: the cross-sampl
 is what separates a site-specific finding from ordinary background, and it needs at least two
 samples to work.
 
+> **Check the samples are one batch before trusting gate 8.** The fold-change measures the
+> site only if extraction and library prep were equal; reagent kitome varies by lot, so
+> separately-processed samples confound place with processing. The PFI report carries no
+> batch metadata, so the engine cannot detect this — pass `--independent` when you know the
+> batch differs. A batch-robust cross-check (species vs the rest of its own genus) and what
+> it does to the HTX conclusions is in
+> [`reference_triage.md`](reference_triage.md#gate-8-assumes-the-samples-are-comparable-and-cannot-verify-it).
+
 ```bash
 python3 analysis/triage.py batch7/S1 batch7/S2 batch7/S3
 ```

@@ -75,7 +75,7 @@ items at x=6.95 spaced 0.72. Plus the rule: `_modifed.pptx` is the reference, ne
 
 ## 5. Subagent — `deck-qa`
 
-`.claude/agents/deck-qa.md`, tools `Read, Bash`. Renders and visually reads all 19 slide PNGs and
+`.claude/agents/deck-qa.md`, tools `Read, Bash`. Renders and visually reads all 20 slide PNGs and
 returns only a list of overflowing slides. Keeps ~19 images out of the main context — the specific
 thing that consumed context repeatedly during the deck build.
 

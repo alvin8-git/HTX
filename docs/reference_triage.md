@@ -126,12 +126,20 @@ written as the first row of the TSV (`kind=sample`), and shown as a banner in th
 | Verdict | Fires when |
 |---|---|
 | `ESCALATE` | Any threat-list taxon at `ESCALATE` — a CDC agent with its confirmatory marker. |
-| `INVESTIGATE` | Any threat-list **or watchlist** taxon at `CONFIRM`, **or** a `high_consequence` acquired gene at `CONFIRM` (`MECA`, `CTX`). |
-| `MONITOR` | Any flagged taxon at `MONITOR`, or any ordinary acquired gene at `CONFIRM`. |
+| `INVESTIGATE` | Any threat-list **or watchlist** taxon at `CONFIRM`, **or** a `high_consequence` acquired gene at `CONFIRM` (`MECA`, `CTX`, `MUPA`). |
+| `MONITOR` | A listed taxon that is **site-enriched** (`fold ≥ enrichment_fold`), **or** a listed taxon that **tops the host pool** of an acquired gene at `CONFIRM`. With no listed taxon in the sample at all, an acquired gene at `CONFIRM` still raises `MONITOR`. |
 | `NO ACTION` | Nothing above. Community-context taxa (`tier == '-'`) never contribute. |
 
-Measured against the briefing deck's human verdicts: 3 of 5 identical, 2 differ by one step, both
-explainable. WBM156 `NO ACTION` → `MONITOR` (the engine reports watchlist organisms in the tap that
+> **`MONITOR` requires a positive driver (changed 2026-08-12).** It previously fired on *any*
+> flagged taxon sitting at `MONITOR`. A public surface carries a dozen WHO-priority organisms at
+> background level as a matter of course, so that made `MONITOR` the floor rather than a finding.
+> A listed organism at the same relative abundance as every other swab is what background looks
+> like; it is not something to watch. Likewise an acquired gene whose host pool is topped by a
+> commensal is the flora's resistome, not the site's. This moved WBM174 and WBM179 from `MONITOR`
+> to `NO ACTION`.
+
+Measured against the briefing deck's human verdicts: WBM156 `NO ACTION` → `MONITOR` (the engine
+reports watchlist organisms in the tap that
 the human read as ordinary water flora); WBM232 `ESCALATE` → `INVESTIGATE` (by design — a watchlist
 organism cannot drive the sample past `INVESTIGATE`).
 
@@ -185,6 +193,45 @@ The kitome genus list becomes the only contamination filter, and every non-threa
 *"no comparator samples — NOT shown to be site-specific"*. Threat-list gating is unaffected: it
 never used cross-sample context. Pass `comparators=False` explicitly for replicates of one
 community.
+
+#### Gate 8 assumes the samples are comparable, and cannot verify it
+
+The fold-change divides this sample's load by the highest load among the others. That measures the
+**site** only if everything else about the samples is equal. Depth normalisation (reads per million
+classified) handles sequencing depth; it does nothing for **extraction or library-prep batch
+effects**, and reagent kitome varies by lot. Run across separately-processed samples, a fold-change
+confounds place with processing.
+
+**The PFI report carries no batch metadata** — no run date, no flowcell, no library ID, only
+`software:V5.1.2 database:5.1.1`, identical in every report. The engine therefore cannot detect
+this condition, and `--independent` is the only control available: a blunt on/off switch the
+operator must set from knowledge the data does not contain.
+
+> **The five HTX swabs were sequenced in separate batches** (confirmed 2026-08-12, after the
+> analysis was written). Gate 8 was run over them without `--independent`. What follows is which
+> conclusions survive that, because the answer is not "all" or "none".
+
+A cross-sample fold is batch-confounded. A **within-sample ratio** is not: numerator and
+denominator went through the same extraction, the same library prep and the same run, so a kit lot
+that delivers more of a genus raises both halves. Comparing a species against the rest of its own
+genus is therefore the batch-robust test, and it is computable from the same two report columns.
+
+| Claim | Cross-sample fold | Within-genus ratio | Survives? |
+|---|---|---|---|
+| *A. baumannii*, WBM232 | 6.0× | **12.7×** the next sample | **Yes** — and on stronger evidence. The rest of *Acinetobacter* is 0.5× in WBM232, i.e. the genus is at its *lowest* there while this species peaks. A kit artefact moves a genus together; this moves one species against its own genus. |
+| *P. rettgeri*, WBM156 | ∞ (only sample) | **none available** — it is the entire *Providencia* signal in that sample | **No.** Present in one batch and absent from four is what a batch-specific contaminant looks like, at 193 reads. This was the sole driver of WBM156's `MONITOR`. |
+| *S. marcescens*, WBM185 | 12.2× | genus-wide rise; the *marcescens* fraction is lower than in WBM232 | **No** — a genus-level effect. |
+| *E. faecalis*, WBM185 | 5.4× | 0.233, the **lowest** of all five samples | **No** — entirely a genus-level rise. |
+
+Negative enrichment findings are the conservative direction here: batch confounding predominantly
+manufactures spurious enrichment, so "nothing is site-enriched" (WBM174, WBM179) is if anything
+better supported across five different kitomes than across one.
+
+**Not yet implemented.** Making the within-genus ratio the enrichment statistic — or requiring both
+to agree — would flag the three genus-level effects automatically and strengthen *A. baumannii*.
+It needs no new input. Two related gaps: *Acinetobacter* is absent from `kitome_genera` despite
+being a documented reagent contaminant (Salter 2014, Eisenhofer 2019), and nothing records *why* a
+given batch was treated as comparable.
 
 ---
 
@@ -448,13 +495,21 @@ its confirmatory marker. A watchlist organism reaches `CONFIRM` only when **all*
    ≥ `watchlist_min_abundance_no_comparators` (1.0%), because enrichment cannot be measured in one
    sample and defaulting the gate open escalated five organisms in WBM232 on one shared gene;
 3. an **acquired** gene at `CONFIRM` whose MEGARes `Class` is in `escalating_classes` **and** whose
-   `amr_host_hints` host range includes this genus.
+   `amr_host_hints` host range includes this genus;
+4. **and this organism must plausibly own that gene** — it is either the most abundant documented
+   host of it in the sample, or holds at least `escalation_host_share` (0.20) of the reads of all
+   its documented hosts.
+
+> **Condition 4 added 2026-08-12.** Being *a* documented host was enough on its own, which let
+> *Serratia marcescens* (WBM185) escalate on a CTX-M whose host pool it holds **1.3%** of, among 77
+> candidate organisms. Below the share bar, naming one of them is arbitrary. *A. baumannii* in
+> WBM232 holds 21% **and** tops its pool, so the batch's one operational finding is unaffected.
 
 Condition 3 is **co-location, not co-attribution** — MEGARes still has no organism column. The
 reasoning string says so, and the verdict it produces is `CONFIRM`, meaning *culture with AST*,
 which is the correct action whether or not the gene turns out to be this organism's.
 
-### `amr_host_hints` — 45 groups, evidence layer
+### `amr_host_hints` — 56 groups, evidence layer
 
 The one inference layer in the system, and it is quarantined. It is read by
 `genus_amr_context()` and by `watchlist_escalation()`. **It never changes a taxon's verdict**;
@@ -606,7 +661,7 @@ leave noise in, never take a real finding out. Across the five HTX samples, runn
 
 | | With gate 6 | HTML-only |
 |---|---|---|
-| Sample verdicts | MONITOR ×3, INVESTIGATE ×2 | **identical** |
+| Sample verdicts | MONITOR, NO ACTION, NO ACTION, INVESTIGATE, INVESTIGATE | **identical** |
 | Threat-list / watchlist rows changed | — | **0** |
 | Taxon rows changed (of 444) | — | **3**, all `NO_ACTION` → `MONITOR` |
 

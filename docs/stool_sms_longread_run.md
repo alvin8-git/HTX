@@ -54,7 +54,7 @@ correctly **not** attributed to an organism.
 
 **Why this gene and not the other eleven CONFIRMs.** Nothing to do with its depth. `sample_verdict()`
 promotes a sample to `INVESTIGATE` for an acquired gene at `CONFIRM` only if the rule file marks the
-group `high_consequence`. Exactly two groups carry that flag — `MECA` and `CTX` — because they are
+group `high_consequence`. Three groups carry that flag — `MECA`, `CTX` and `MUPA` (added 2026-08-12) — because they are
 the two that change clinical management on their own: CTX-M removes third-generation
 cephalosporins, *mecA* removes the anti-staphylococcal β-lactams. `CFX` at 130× and `TETQ` at 41×
 are higher-depth and lower-consequence; they land in the "24 acquired genes, none high-consequence"

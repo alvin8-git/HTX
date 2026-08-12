@@ -563,6 +563,13 @@ into an actionable result: *A. baumannii* at **2,507 reads per million** against
 other site — 6–43× enrichment. That is real site enrichment and it passes the kitome test, because
 reagent contaminants appear uniformly and therefore never enrich.
 
+> **Caveat added 2026-08-12.** These five swabs were sequenced in *separate batches*, so a raw
+> cross-sample fold confounds site with processing. This conclusion survives a batch-robust
+> re-test — *A. baumannii* is 12.7× the next sample as a fraction of its own genus, while the
+> rest of *Acinetobacter* is at its lowest in WBM232 — but three weaker enrichment calls in
+> the batch do not. See
+> [`reference_triage.md`](docs/reference_triage.md#gate-8-assumes-the-samples-are-comparable-and-cannot-verify-it).
+
 **When it is wrong to use it, and the flag that turns it off.** Gate 8 asks "is this taxon enriched
 *here* relative to the others". That question is meaningful for swabs from one facility. It is
 meaningless for four unrelated stool donors, who are four different gut communities — normal
@@ -737,7 +744,7 @@ Source of truth: [`analysis/triage_rules.json`](analysis/triage_rules.json). Ful
 | `amr_classes` | 116 | Group-level overrides carrying host-specific knowledge |
 | `mechanism_classes` | 131 | `Type\|Mechanism` pairs spanning all 397 groups |
 | `marker_patterns` | 24 | Marker regexes, word-bounded and gene-specific |
-| `amr_host_hints` | 45 | Documented host ranges — labelled INFERRED, never a verdict input |
+| `amr_host_hints` | 56 | Documented host ranges — labelled INFERRED, never a verdict input |
 | `kitome_genera` | 20 | Known reagent contaminants |
 | `taxonomy_notes` | 3 | Reclassification warnings |
 
@@ -763,8 +770,8 @@ virulence factors. DNA-only, 150 bp paired-end, PFI report software v5.1.2 / DB 
 | Sample | Site | Raw reads | Host | Classified | Verdict |
 |---|---|---:|---:|---:|---|
 | WBM156 | Ferry terminal — arrival restroom, tap | 45,157,428 | 91.28% | 622,642 | MONITOR |
-| WBM174 | Changi T3 — arrival, automated passport scanner | 26,098,873 | 18.76% | 2,465,508 | MONITOR |
-| WBM179 | Changi T3 — departure, fingerprint reader | 53,234,419 | 77.18% | 3,110,882 | MONITOR |
+| WBM174 | Changi T3 — arrival, automated passport scanner | 26,098,873 | 18.76% | 2,465,508 | NO ACTION |
+| WBM179 | Changi T3 — departure, fingerprint reader | 53,234,419 | 77.18% | 3,110,882 | NO ACTION |
 | WBM185 | Changi T3 — departure, check-in kiosk touchscreen | 22,003,960 | 6.33% | 2,006,566 | **INVESTIGATE** |
 | WBM232 | Changi T4 — departure, trolley handles (rows 5–6) | 32,813,695 | 22.32% | 2,590,665 | **INVESTIGATE** |
 
