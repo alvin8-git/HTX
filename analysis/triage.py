@@ -1230,6 +1230,13 @@ if __name__ == '__main__':
     args = [m for a in args
             for m in (sorted(glob.glob(a)) if any(c in a for c in '*?[') else [a])
             or [a]]
+    # A directory means "every report in here". Workflow engines hand downstream steps the whole
+    # output directory of the previous step, not the one file inside it - on MGI ZTRON the PFI
+    # app's `Results` output is a directory, and it cannot be dropped onto a File input at all.
+    args = [m for a in args
+            for m in (sorted(glob.glob(os.path.join(a, '*_en.htm*'))) or
+                      sorted(glob.glob(os.path.join(a, '*.htm*'))) or [a]
+                      if os.path.isdir(a) else [a])]
     # --with-fastq: opt in to the gates that read outside the HTML report (gate 6, FASTQ integrity).
     # Off by default so the baseline output is reproducible by anyone holding only the report.
     WITH_FASTQ = '--with-fastq' in sys.argv

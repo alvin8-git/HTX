@@ -130,6 +130,22 @@ triage --html --outdir=. /path/stg1/WBM156_en.html /path/stg2/WBM232_en.html
 which is the shape verified in this repo — reports staged in separate directories, outputs in the
 working directory.
 
+### Wiring the PFI app to this component
+
+The input ports are **hidden until you show them**. Click the node, **View**, the **Input** tab,
+the **FILES** section, and switch each `report_N` to display state; only Required inputs (the
+asterisked ones) get a port automatically. A node showing outputs but no input dot is this, not a
+broken component.
+
+An upstream app hands you its whole output slot, not the one file inside it. ZTRON's PFI app exposes
+`STDOUT`, `STDERR` and `Results`; `Results` is a directory, which will not drop onto a `File` input.
+So **a report argument may also be a directory** — the engine takes every `*_en.html` in it, sorted,
+and falls back to any `*.html`. Wire `Results` straight through, or change `report_1`'s Type to
+match the port ZTRON offers.
+
+One PFI run produces one sample. Five samples means five PFI nodes feeding `report_1`…`report_5` of
+**one** htx_triage node, for the reason below.
+
 ### Why all reports go to ONE component instance
 
 Gate 8 divides a taxon's depth-normalised load by the highest load among *the other samples in the
