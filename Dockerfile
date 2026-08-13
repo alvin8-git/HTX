@@ -1,10 +1,14 @@
 # HTX metagenomic triage engine.
 #
-# The engine is Python 3 standard library only - no aligner, no reference database, no network.
-# That is a design constraint, not an accident, and it is what makes this image small and
-# reproducible. The two pip packages below are for the OPTIONAL reporting paths (xlsx export and
-# the briefing deck); `triage.py` itself never imports them, so a workflow that only runs triage
-# is unaffected if they are absent.
+# The engine is Python 3 standard library only - no aligner, no reference database, no network,
+# and NO pip install. That is a design constraint, not an accident, and it is what makes this
+# image small, reproducible, and buildable on an air-gapped or elderly host.
+#
+# The image deliberately does NOT carry openpyxl/python-pptx. They serve `export_rules.py` and
+# `build_deck.py`, which are reporting paths run by a human on a workstation, not pipeline steps -
+# the WDL never calls them. Installing them cost a network fetch at build time and bought the
+# image nothing, and the pip step was the ONLY part of this build that needed to spawn a thread,
+# which is what broke it on CentOS 7 (see docs/howto_run_containerized.md).
 #
 #   docker build -t htx-triage:1.0.0 .
 #   docker run --rm htx-triage:1.0.0 triage --selftest
@@ -15,9 +19,6 @@ LABEL org.opencontainers.image.title="htx-triage" \
       org.opencontainers.image.description="Deterministic triage of PFI metagenomic reports" \
       org.opencontainers.image.version="1.0.0" \
       org.opencontainers.image.licenses="MIT"
-
-# Optional extras only. Pinned so an image rebuilt in a year produces the same deck.
-RUN pip install --no-cache-dir openpyxl==3.1.5 python-pptx==1.0.2
 
 WORKDIR /opt/htx
 # Code and rules only. No sample data, no reports - those arrive as mounted inputs, which is

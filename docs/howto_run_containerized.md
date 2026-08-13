@@ -20,9 +20,29 @@ cd /data/alvin/HTX
 docker build -t htx-triage:1.0.0 .
 ```
 
-~167 MB, built on `python:3.12-slim`. **The build runs `--selftest` and fails if the rules are
-inconsistent** — an image that ships broken rules is worse than no image, because a workflow will
-run it and produce verdicts anyway.
+~120 MB, built on `python:3.12-slim`, and **the build installs nothing** — the engine is Python
+standard library only, so there is no `pip install` layer and no network fetch. It builds on an
+air-gapped host once the base image is present.
+
+**The build runs `--selftest` and fails if the rules are inconsistent** — an image that ships
+broken rules is worse than no image, because a workflow will run it and produce verdicts anyway.
+
+### Building on an old host (CentOS 7 and similar)
+
+Building on CentOS 7 with the legacy (pre-BuildKit) builder used to fail here:
+
+```
+RuntimeError: can't start new thread
+The command '/bin/sh -c pip install ...' returned a non-zero code: 2
+```
+
+That is not a Python or a pip fault. CentOS 7 ships a Docker whose seccomp profile predates the
+`clone3` syscall; Debian bookworm's glibc uses `clone3` for `pthread_create`, so the call is
+denied and any thread creation fails. pip's progress bar runs on a thread, so pip died first.
+
+**The build no longer installs anything, so this cannot happen** — `triage.py` never spawns a
+thread. If you hit `clone3` denials elsewhere on such a host, the general fix is
+`--security-opt seccomp=unconfined`, or upgrading Docker to 20.10.10+.
 
 The image carries `analysis/` only. No sample data, no reports, nothing site- or
 patient-identifying, so it is safe to push to a registry.
@@ -169,9 +189,13 @@ this repo:
 
 ## What is NOT in the image
 
-`build_deck.py` (briefing deck) and `export_rules.py` (xlsx) need `python-pptx` and `openpyxl`,
-which are installed, so they run — but they are reporting paths, not pipeline steps, and the WDL
-does not call them. `annotate_contigs.py` needs `abricate`, `megahit` and `bwa-mem2` and is
+`build_deck.py` (briefing deck) and `export_rules.py` (xlsx) are in the image but **will not run
+there** — they need `python-pptx` and `openpyxl`, which are deliberately not installed. They are
+reporting paths a human runs on a workstation, not pipeline steps, and the WDL never calls them;
+run them on the host with `pip install openpyxl python-pptx`. Keeping them out of the image means
+the build needs no network and no thread (see [Building on an old
+host](#building-on-an-old-host-centos-7-and-similar)).
+`annotate_contigs.py` needs `abricate`, `megahit` and `bwa-mem2` and is
 **outside the engine's input contract** entirely (see
 [`reference_triage.md`](reference_triage.md#what-the-report-cannot-carry)); it is not containerised
 here.

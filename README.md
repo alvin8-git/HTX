@@ -172,8 +172,13 @@ cd HTX
 docker build -t htx-triage:1.0.0 .
 ```
 
-~167 MB, on `python:3.12-slim`. The build runs the rule selftest and **fails if the rules are
-inconsistent**, so a broken image cannot be produced.
+~120 MB, on `python:3.12-slim`. **Nothing is installed** — the engine is Python standard library
+only, so the build makes no network fetch once the base image is pulled. The build runs the rule
+selftest and **fails if the rules are inconsistent**, so a broken image cannot be produced.
+
+On an old Docker (CentOS 7 and similar) the build used to die on `RuntimeError: can't start new
+thread`; that step is gone. See [the container
+how-to](docs/howto_run_containerized.md#building-on-an-old-host-centos-7-and-similar).
 
 **2. Check it works.** Needs no data at all:
 
