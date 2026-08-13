@@ -27,17 +27,26 @@ Two consequences:
 
 ```bash
 docker build -t htx-triage:1.0.0 .
-docker save htx-triage:1.0.0 -o htx-triage-1.0.0.tar     # ~118 MB
+docker save htx-triage:1.0.0 -o htx_triage_1_0_0.tar      # ~118 MB
 ```
+
+**Name the file with underscores only.** ZTRON's Pkg Upload rejects `htx-triage-1.0.0.tar` — it
+validates the *filename*, and dots and hyphens outside the extension do not pass. The tar's name
+carries no meaning to Docker; `docker load` reads the image tag from the manifest inside, so
+renaming the file changes nothing about what gets loaded. Match the Task **Name** while you are
+here, so the uploaded package and the component are obviously the same thing.
 
 Verify the tar before uploading it — a corrupt or wrong-architecture layer will not be diagnosable
 from the platform's task log:
 
 ```bash
 docker rmi htx-triage:1.0.0
-docker load -i htx-triage-1.0.0.tar
+docker load -i htx_triage_1_0_0.tar
 docker run --rm htx-triage:1.0.0 triage --version         # htx-triage 1.0.0  rules=257ef531791a
 ```
+
+The image is still tagged `htx-triage:1.0.0` after loading — hyphens and dots are fine in a Docker
+tag, which is why only the file needs renaming.
 
 **Record the rules fingerprint with the component version.** The engine is stable; the rule file
 is the part that moves, and a platform run that cannot name its rules cannot be reproduced.
