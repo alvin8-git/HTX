@@ -57,20 +57,36 @@ is the part that moves, and a platform run that cannot name its rules cannot be 
 |---|---|---|
 | **Name** | `htx_triage_1_0_0` | Cannot be all numbers. Encode the image tag — the component is a snapshot of one image |
 | **Pkg Upload** | `htx-triage-1.0.0.tar` | From step 1 |
-| **Command** | `triage --html --outdir=.` | See below |
+| **Command** | `triage --html` | See below. Keep it to the program and fixed flags — pass paths as Inputs |
 | **Category** / **Tag** | `metagenomics` / `triage` | Free text, for the component search box |
 | **Compute Resource** | **1 CPU, 2 GB** | Measured: 80 MB peak RSS and 0.54 s wall for a five-sample batch. It parses HTML and applies rules — there is no alignment and no database |
 
-**Command — `triage --html --outdir=.`**
+**Command — `triage --html`**
 
 - `triage` is a wrapper on `PATH` inside the image. The image sets **no `ENTRYPOINT`** deliberately
   (a Python entrypoint breaks WDL engines the same way it would confuse CWL's command assembly).
-- `--outdir=.` writes into the task's working directory, which is what CWL collects outputs from.
-  Anything written elsewhere in the container is discarded when the task ends.
 - `--html` adds the self-contained evidence report.
+- **`--outdir` is an Input, not part of Command** — see the table below. It has to be `.`, the
+  task's working directory, because that is what CWL collects outputs from; anything written
+  elsewhere in the container is discarded when the task ends. Keeping it in the Inputs table means
+  every generated argument is spaced by the platform, and nothing abuts the fixed Command text.
 
-The report paths and inputs are appended by the platform from the Inputs table, exactly as the
-manual's Samtools example shows (`Samtools view` becoming `Samtools view -b … -o … `).
+The platform appends the Inputs to the Command, exactly as the manual's Samtools example shows
+(`Samtools view` becoming `Samtools view -b … -o … `).
+
+### Check the generated command line before you submit
+
+The form previews the line it will build, using placeholder values (`/path/to/report_1.ext`). Read
+it. It should be spaced:
+
+```
+triage --html --outdir=. /path/to/report_1.ext /path/to/report_2.ext --independent
+```
+
+If arguments run together — `--outdir=./path/to/report_1.ext/path/to/report_2.ext--independent` —
+the **Position** values are the thing to check first; give every input its own, and leave nothing
+in Command but the program and its fixed flags. Temporarily setting Command to `echo` previews the
+argument list on its own, which isolates the Inputs table from anything Command contributes.
 
 ## 3. Inputs — one File item per report
 
@@ -79,6 +95,7 @@ enum. So each report is its own input item. Add as many as your largest batch:
 
 | ID | Type | Required | Include in the command line | Prefix | Position |
 |---|---|---|---|---|---|
+| `outdir` | string | on | on | `--outdir=` | 0 |
 | `report_1` | File | **on** | on | *(blank)* | 1 |
 | `report_2` | File | off | on | *(blank)* | 2 |
 | `report_3` | File | off | on | *(blank)* | 3 |
@@ -86,6 +103,8 @@ enum. So each report is its own input item. Add as many as your largest batch:
 | `report_5` | File | off | on | *(blank)* | 5 |
 | `independent` | boolean | off | on | `--independent` | 9 |
 
+- **`outdir` is a string with Default `.`** and **Separate value and prefix OFF**, so it renders as
+  the single token `--outdir=.` rather than `--outdir= .`. Give every input a distinct Position.
 - **No prefix on the reports.** The engine takes them as positional arguments.
 - **File Type**: `html`.
 - Leave **Separate value and prefix** at its default; it is irrelevant with no prefix.
