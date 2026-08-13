@@ -73,6 +73,21 @@ filename to `--outdir` is now rejected rather than obeyed.
 **Everything you want to keep must be under a mounted path.** A container's own filesystem is
 discarded on exit, so `--outdir=/data/out` (mounted) survives and an unmounted path does not.
 
+### Quote your globs
+
+```bash
+docker run --rm -v "$PWD/Reports:/data" htx-triage:1.0.0 \
+  triage --html --outdir=/data/out '/data/*_en.html'      # note the quotes
+```
+
+`/data` exists only inside the container, so an **unquoted** `/data/*_en.html` is expanded by your
+host shell against the host's `/data`, which is a different place or no place at all. Bash then
+passes the unmatched pattern through as a literal string and the engine is handed a filename with
+a `*` in it.
+
+Quote it and the engine globs it itself, container-side, sorted. Mount paths are the other half of
+the same trap: `-v "$PWD/Reports:/data"` puts the reports at `/data/`, **not** `/data/Reports/`.
+
 `triage` is on `PATH` inside the image. **There is deliberately no `ENTRYPOINT`** — see
 [Two container gotchas](#two-container-gotchas-both-hit-during-this-work).
 
@@ -173,7 +188,7 @@ The container must reproduce a host run exactly. This was checked, not assumed:
 ```bash
 python3 analysis/triage.py                    # host
 docker run --rm -v "$PWD:/data" htx-triage:1.0.0 \
-  triage --outdir=/data/out /data/WBM*_en.html  # container
+  triage --outdir=/data/out '/data/WBM*_en.html'  # container
 
 for s in WBM156 WBM174 WBM179 WBM185 WBM232; do
   cmp analysis/triage_$s.tsv out/triage_$s.tsv && echo "$s identical"

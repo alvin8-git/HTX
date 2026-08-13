@@ -26,6 +26,7 @@ Design constraints, deliberate:
     belongs in triage_rules.json rather than in this file.
 """
 import collections
+import glob
 import gzip
 import math
 import json
@@ -74,6 +75,9 @@ def report_path(sample):
             return sample
         if os.path.exists(sample + '_en.html'):
             return sample + '_en.html'
+        # Give up as the caller wrote it. Stapling _en.html onto a path that already ends in
+        # .html only produces 'missing_en.html_en.html' in the error, which hides the real cause.
+        return sample
     return os.path.join(ROOT, f'{sample}_en.html')
 
 
@@ -89,6 +93,18 @@ def sample_id(sample):
 def load_report(sample):
     """Pull the globalData object literal out of the Vue SPA by brace matching."""
     path = report_path(sample)
+    if not os.path.exists(path):
+        # Name the path actually tried. The old failure surfaced as the bare OSError for
+        # '/data/WBM*_en.html_en.html' - the _en.html fallback stapled onto an unexpanded glob -
+        # which reads as an engine bug rather than a shell one.
+        if any(c in sample for c in '*?['):
+            # We glob these ourselves, so an unexpanded pattern arriving here matched nothing -
+            # in a container, nearly always the mount, not the pattern.
+            d = os.path.dirname(sample) or '.'
+            raise SystemExit(f'{sample}: matched no file. Is {d} mounted, and are the reports '
+                             f'directly in it? -v "$PWD/Reports:/data" puts them at /data/, '
+                             f'not /data/Reports/.')
+        raise SystemExit(f'{sample}: no such report (tried {path})')
     html = open(path, encoding='utf-8', errors='replace').read()
     i = html.find('globalData:')
     if i < 0:
@@ -1169,6 +1185,13 @@ def selftest():
 
 if __name__ == '__main__':
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    # Expand globs ourselves. Inside a container the host shell cannot see /data, so
+    # `-v "$PWD/Reports:/data" ... /data/*_en.html` reaches us as a literal pattern - and the host
+    # shell may even expand it against the WRONG directory. Sorted, because glob order is the
+    # filesystem's and sample order shows up in the outputs. A no-op when the shell did expand.
+    args = [m for a in args
+            for m in (sorted(glob.glob(a)) if any(c in a for c in '*?[') else [a])
+            or [a]]
     # --with-fastq: opt in to the gates that read outside the HTML report (gate 6, FASTQ integrity).
     # Off by default so the baseline output is reproducible by anyone holding only the report.
     WITH_FASTQ = '--with-fastq' in sys.argv
