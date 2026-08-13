@@ -13,10 +13,16 @@ and an inputs object carrying `class "File"`, `basename`, `nameroot`, `nameext`,
 `Separate value and prefix` and `Shell reference` are the GUI names for CWL's
 `inputBinding.prefix`, `.position`, `.separate` and `shellQuote`.
 
+The appliance does ship a WDL importer — `wdl_script/miniwdl/tools/wdlAcwlTransformer.py`, which
+parses WDL with miniwdl and converts it to CWL — so WDL is an *entry format*, not the runtime. CWL
+is what executes.
+
 Two consequences:
 
-1. **[`wdl/triage.wdl`](../wdl/triage.wdl) is not used on ZTRON.** It stays in the repo for
-   Cromwell and miniwdl. The container is the portable part; the workflow language is not.
+1. **[`wdl/triage.wdl`](../wdl/triage.wdl) is not the path of least resistance on ZTRON.** The
+   Pipeline Component form below is the direct CWL route and does not touch the transformer. The
+   WDL stays in the repo for Cromwell and miniwdl. The container is the portable part; the workflow
+   language is not.
 2. **The platform generates ONE command line.** You do not write a shell script, so a component
    cannot chain two invocations. This is why `--html` was changed to emit the TSVs in the same run
    when `--outdir` is given — see [One component, all outputs](#one-component-all-outputs).
