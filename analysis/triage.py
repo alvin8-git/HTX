@@ -1195,7 +1195,10 @@ if __name__ == '__main__':
                                       # ROOT is /opt/htx, which is not where outputs belong and is
                                       # not writable by the task user.
                                       **({'out': os.path.abspath(out)} if out else {}))
-        print(f'{os.path.relpath(path, ROOT)}: {n} sample(s), '
+        # Plain path when the output is outside ROOT. relpath against ROOT renders a
+        # container path as ../../data/out/... which reads as a mistake, not a location.
+        shown = os.path.relpath(path, ROOT) if path.startswith(ROOT + os.sep) else path
+        print(f'{shown}: {n} sample(s), '
               f'{os.path.getsize(path)/1024:.0f} KB, self-contained')
     else:
         run(args or SAMPLES, comparators)

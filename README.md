@@ -159,24 +159,79 @@ records the outcome: `blaZ` assembles cleanly onto a staphylococcal plasmid, but
 CTX-M do not assemble in either sample**, so the resistance genes cannot be attributed to a host
 organism. The limit is read coverage and allele diversity, not assembler choice.
 
-## Run it anywhere — container and WDL
+## Quickstart — clone and run in Docker
+
+Nothing to install but Docker. No Python packages, no reference database, no aligner, no network
+at run time.
+
+**1. Clone and build.**
 
 ```bash
+git clone git@github.com:alvin8-git/HTX.git
+cd HTX
 docker build -t htx-triage:1.0.0 .
-docker run --rm htx-triage:1.0.0 triage --selftest
-docker run --rm -v "$PWD:/data" htx-triage:1.0.0 \
-  triage --outdir=/data/out /data/WBM232_en.html
 ```
 
-The image carries the engine and the rule file and nothing else — no sample data, no reports. The
-build fails if `--selftest` fails, so an image cannot ship inconsistent rules. Verified
-byte-identical to a host run on all five samples.
+~167 MB, on `python:3.12-slim`. The build runs the rule selftest and **fails if the rules are
+inconsistent**, so a broken image cannot be produced.
 
-[`wdl/triage.wdl`](wdl/triage.wdl) wraps the same container as a WDL task, for use as a component
-in a larger workflow. The whole batch goes to one task on purpose: gate 8 compares samples against
-each other, so fanning them out across parallel tasks would silently discard the comparison that
-separates a site finding from background. Full guide, including two container gotchas that produce
-exit 2 with an empty stderr, in
+**2. Check it works.** Needs no data at all:
+
+```bash
+docker run --rm htx-triage:1.0.0 triage --selftest
+# selftest: all rule checks pass
+
+docker run --rm htx-triage:1.0.0 triage --version
+# htx-triage 1.0.0  rules=257ef531791a       <- record this with your results
+```
+
+**3. Run it on your own report.** Put the PFI HTML reports in a directory, mount it at `/data`:
+
+```bash
+mkdir -p out
+docker run --rm -v "$PWD:/data" htx-triage:1.0.0 \
+  triage --outdir=/data/out /data/MYSAMPLE_en.html
+```
+
+For a batch, name every report in **one** command — the cross-sample enrichment gate compares them
+against each other and needs them in one process:
+
+```bash
+docker run --rm -v "$PWD:/data" htx-triage:1.0.0 \
+  triage --outdir=/data/out /data/S1_en.html /data/S2_en.html /data/S3_en.html
+```
+
+Add `--independent` when the samples are **not** one batch from one site (different donors,
+different facilities, different sequencing runs), or a fold-change between them will be misread as
+site enrichment.
+
+**4. Get the evidence report** — the same HTML report described under
+[Triage engine](#triage-engine), with the evidence behind every verdict:
+
+```bash
+docker run --rm -v "$PWD:/data" htx-triage:1.0.0 \
+  triage --html --out=/data/out/triage_report.html /data/S1_en.html /data/S2_en.html
+```
+
+> **The repository ships no sample data.** `WBM*_en.html` and the raw reads are gitignored — they
+> are not ours to redistribute. A fresh clone gives you the engine, the rule file and the docs, so
+> `--selftest` and `--version` work immediately but `triage <sample>` needs a PFI report you supply.
+
+### As a WDL task
+
+[`wdl/triage.wdl`](wdl/triage.wdl) wraps the same container for use as a component in a larger
+workflow:
+
+```bash
+miniwdl run wdl/triage.wdl \
+  reports=/path/S1_en.html reports=/path/S2_en.html batch_name=mybatch
+# or: java -jar cromwell.jar run wdl/triage.wdl -i wdl/inputs.example.json
+```
+
+The whole batch goes to one task on purpose — fanning it across parallel tasks would run fine and
+silently discard the comparison that separates a site finding from background.
+
+Full guide, including two container gotchas that both present as exit 2 with an empty stderr, in
 [`docs/howto_run_containerized.md`](docs/howto_run_containerized.md).
 
 ## Triage engine
