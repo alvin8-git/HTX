@@ -1,0 +1,9 @@
+# Everything except analysis/. The image ships code and rules; sample data arrives as a mount.
+*
+!analysis/
+analysis/*.tsv
+analysis/*.json
+!analysis/triage_rules.json
+analysis/*.html
+analysis/*.xlsx
+analysis/__pycache__/

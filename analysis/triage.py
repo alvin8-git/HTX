@@ -37,6 +37,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RULES = json.load(open(os.path.join(ROOT, 'analysis', 'triage_rules.json')))
 TH = RULES['thresholds']
 SAMPLES = ['WBM156', 'WBM174', 'WBM179', 'WBM185', 'WBM232']
+VERSION = '1.0.0'
+
+
+def rules_fingerprint():
+    """Short hash of the rule file. Printed by --version so a workflow run records WHICH rules
+    produced its verdicts - the engine is stable, the rules are the part that moves."""
+    import hashlib
+    with open(os.path.join(ROOT, 'analysis', 'triage_rules.json'), 'rb') as fh:
+        return hashlib.sha256(fh.read()).hexdigest()[:12]
 
 # The optional-extension switch, set by --with-fastq. False is the contract: the HTML report is the
 # whole input, and an importer that never touches this flag gets a pure report-only interpretation.
@@ -47,9 +56,39 @@ WITH_FASTQ = False
 TIERS = ['NO_ACTION', 'MONITOR', 'CONFIRM', 'ESCALATE']
 
 
+# OUTDIR is where TSVs land. Default is the repo layout; a workflow engine sets it, because
+# WDL/Cromwell localises inputs into a generated directory and expects outputs beside them.
+OUTDIR = os.path.join(ROOT, 'analysis')
+
+
+def report_path(sample):
+    """Resolve a sample argument to a report file.
+
+    A bare stem (`WBM232`) resolves under the repo root, which is how this has always been driven
+    by hand. Anything that already looks like a path or a file is taken as given - that is the
+    case a workflow engine needs, since Cromwell localises an input to a directory generated at
+    run time that the container cannot predict or hard-code.
+    """
+    if sample.endswith(('.html', '.htm')) or os.path.isabs(sample) or os.sep in sample:
+        if os.path.exists(sample):
+            return sample
+        if os.path.exists(sample + '_en.html'):
+            return sample + '_en.html'
+    return os.path.join(ROOT, f'{sample}_en.html')
+
+
+def sample_id(sample):
+    """Display and filename stem for a sample argument, path or bare stem alike."""
+    b = os.path.basename(sample)
+    for suf in ('_en.html', '_en.htm', '.html', '.htm'):
+        if b.endswith(suf):
+            return b[:-len(suf)]
+    return sample.replace('/', '_')
+
+
 def load_report(sample):
     """Pull the globalData object literal out of the Vue SPA by brace matching."""
-    path = os.path.join(ROOT, f'{sample}_en.html')
+    path = report_path(sample)
     html = open(path, encoding='utf-8', errors='replace').read()
     i = html.find('globalData:')
     if i < 0:
@@ -815,7 +854,7 @@ def run(samples, comparators=None):
         taxa = triage_taxa(s, g, loads, genes, comparators)
         sv, sv_why = sample_verdict(taxa, genes)
 
-        print(f'\n{"="*100}\n{s}   classified={classified[s]:,}\n{"="*100}')
+        print(f'\n{"="*100}\n{sample_id(s)}   classified={classified[s]:,}\n{"="*100}')
         print(f'  SAMPLE VERDICT: {sv}')
         for r in sv_why[:4]:
             print(f'      - {r[:110]}')
@@ -852,10 +891,13 @@ def run(samples, comparators=None):
         print(f"  rule coverage: {len(genes)-len(unann)}/{len(genes)} MEGARes groups annotated; "
               f"{len(unann)} need a rule: {' '.join(sorted(unann)[:14])}")
 
-        out = os.path.join(ROOT, 'analysis', f'triage_{s.replace("/", "_")}.tsv')
+        out = os.path.join(OUTDIR, f'triage_{sample_id(s)}.tsv')
         with open(out, 'w') as fh:
             fh.write('kind\tverdict\tcdc_tier\tname\tevidence\treason\tnote\n')
-            fh.write(f'sample\t{sv}\t\t{s}\t{classified[s]} classified reads\t'
+            # sample_id, not the raw argument: under WDL the argument is a localised path
+            # like /cromwell-executions/.../WBM185_en.html, and writing that into the identifier
+            # column makes the TSV unreadable outside the run that produced it.
+            fh.write(f'sample\t{sv}\t\t{sample_id(s)}\t{classified[s]} classified reads\t'
                      f'{" | ".join(sv_why)}\t\n')
             for r in taxa:
                 fh.write(f"taxon\t{r['verdict']}\t{r['tier']}\t{r['taxon']}\t{r['real']} reads\t{r['why']}\t\n")
@@ -863,7 +905,7 @@ def run(samples, comparators=None):
                 fh.write(f"amr\t{r['verdict']}\t\t{r['group']} ({r['allele']})\t"
                          f"{r['breadth']:.2f}% {r['depth']:.2f}x collapsed {r['alleles_collapsed']}\t"
                          f"{r['why']}\t{r['note']}\n")
-        print(f'  -> {os.path.relpath(out, ROOT)}')
+        print(f'  -> {os.path.relpath(out, ROOT) if out.startswith(ROOT) else out}')
 
 
 def selftest():
@@ -1130,16 +1172,29 @@ if __name__ == '__main__':
     # --with-fastq: opt in to the gates that read outside the HTML report (gate 6, FASTQ integrity).
     # Off by default so the baseline output is reproducible by anyone holding only the report.
     WITH_FASTQ = '--with-fastq' in sys.argv
+    # --outdir: where TSVs land. A workflow engine runs the container with inputs and outputs in
+    # directories it generates, so neither can be baked into the image.
+    _od = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--outdir=')), None)
+    if _od:
+        OUTDIR = os.path.abspath(_od)
+        os.makedirs(OUTDIR, exist_ok=True)
     # --independent: the samples are not from one site (different donors, different facilities), so
     # a fold-change between them measures who they came from, not where. Turns gate 8 off.
     comparators = False if '--independent' in sys.argv else None
     out = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--out=')), None)
+    if '--version' in sys.argv:
+        print(f'htx-triage {VERSION}  rules={rules_fingerprint()}')
+        raise SystemExit(0)
     if '--selftest' in sys.argv:
         selftest()
     elif '--html' in sys.argv:
         import triage_report
         path, n = triage_report.build(args or SAMPLES, comparators=comparators,
-                                      **({'out': os.path.join(ROOT, out)} if out else {}))
+                                      # abspath against the CWD, not ROOT. Run from the repo root
+                                      # this is identical to the old behaviour; inside a container
+                                      # ROOT is /opt/htx, which is not where outputs belong and is
+                                      # not writable by the task user.
+                                      **({'out': os.path.abspath(out)} if out else {}))
         print(f'{os.path.relpath(path, ROOT)}: {n} sample(s), '
               f'{os.path.getsize(path)/1024:.0f} KB, self-contained')
     else:

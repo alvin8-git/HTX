@@ -35,6 +35,7 @@ Full analysis: **[`docs/biothreat_assessment.md`](docs/biothreat_assessment.md)*
 | [`docs/reference_rules.md`](docs/reference_rules.md) | Reference | Generated — every threat agent, watchlist organism, marker and threshold as tables. |
 | [`docs/pfidb_v5_comparison.md`](docs/pfidb_v5_comparison.md) | Reference | PFIDB v5.0 vs the kingdom-split lists, and the three WHO organisms that could never fire. |
 | [`docs/howto_triage_new_sample.md`](docs/howto_triage_new_sample.md) | How-to | Run the engine on a report you have never seen. |
+| [`docs/howto_run_containerized.md`](docs/howto_run_containerized.md) | How-to | Run it in Docker and as a WDL task in a larger workflow. |
 | [`docs/triage_prototype_results.md`](docs/triage_prototype_results.md) | Reference | Where the engine agrees and disagrees with the manual analysis. |
 | [`docs/zymo_validation.md`](docs/zymo_validation.md) | Reference | Measured sensitivity, specificity and quantitation against a certified standard. |
 | [`docs/stool_sms_longread_run.md`](docs/stool_sms_longread_run.md) | Reference | A long-read stool batch, the five defects it exposed, and what each fix changed. |
@@ -89,6 +90,8 @@ Zymo/                        ZymoBIOMICS standard — the known-truth control
   ds1706_...data_sheet.pdf   Ground truth: 8 bacteria at 12%, 2 yeasts at 2%
 PFIDB_v5_0.xlsx              Classifier taxonomy — 27,827 names (see docs/pfidb_cdc_coverage.md)
 
+Dockerfile                   Container image: engine + rules, no sample data
+wdl/triage.wdl               WDL wrapper — run the container as a workflow component
 docs/                        All documentation — see the table above
 analysis/                    Scripts and derived tables
   extract.py analyze.py      HTML -> JSON -> species/AMR/VF tables
@@ -155,6 +158,26 @@ python3 analysis/annotate_contigs.py WBM232 WBM185 # abricate x5 DBs + per-taxon
 records the outcome: `blaZ` assembles cleanly onto a staphylococcal plasmid, but **`mecA` and
 CTX-M do not assemble in either sample**, so the resistance genes cannot be attributed to a host
 organism. The limit is read coverage and allele diversity, not assembler choice.
+
+## Run it anywhere — container and WDL
+
+```bash
+docker build -t htx-triage:1.0.0 .
+docker run --rm htx-triage:1.0.0 triage --selftest
+docker run --rm -v "$PWD:/data" htx-triage:1.0.0 \
+  triage --outdir=/data/out /data/WBM232_en.html
+```
+
+The image carries the engine and the rule file and nothing else — no sample data, no reports. The
+build fails if `--selftest` fails, so an image cannot ship inconsistent rules. Verified
+byte-identical to a host run on all five samples.
+
+[`wdl/triage.wdl`](wdl/triage.wdl) wraps the same container as a WDL task, for use as a component
+in a larger workflow. The whole batch goes to one task on purpose: gate 8 compares samples against
+each other, so fanning them out across parallel tasks would silently discard the comparison that
+separates a site finding from background. Full guide, including two container gotchas that produce
+exit 2 with an empty stderr, in
+[`docs/howto_run_containerized.md`](docs/howto_run_containerized.md).
 
 ## Triage engine
 

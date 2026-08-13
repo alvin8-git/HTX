@@ -1,0 +1,13 @@
+{
+  "TriageBatch.reports": [
+    "/path/to/WBM156_en.html",
+    "/path/to/WBM174_en.html",
+    "/path/to/WBM179_en.html",
+    "/path/to/WBM185_en.html",
+    "/path/to/WBM232_en.html"
+  ],
+  "TriageBatch.batch_name": "htx_2026_08",
+  "TriageBatch.independent": false,
+  "TriageBatch.html_report": true,
+  "TriageBatch.docker": "htx-triage:1.0.0"
+}

@@ -148,7 +148,9 @@ def collect(samples, comparators=None):
             t['vf'], t['vf_rows'] = vf_for_taxon(vf_rows, t['taxon'])
 
         out.append({
-            'sample': s, 'id': s.replace('/', '_'),
+            # sample_id strips a localised path down to the stem: under WDL `s` is
+            # /cromwell-executions/.../WBM185_en.html, which is not a sample name.
+            'sample': triage.sample_id(s), 'id': triage.sample_id(s),
             'platform': 'long read' if triage.detect_platform(g) == 'long' else 'short read',
             'qc': g['basicSummary']['readsQc']['data'][0],
             'idsum': (g['basicSummary'].get('idSummary', {}).get('data') or [{}])[0],
@@ -610,9 +612,15 @@ function showTab(s,t){pick('.panel[data-s="'+s+'"] .tabs button','t',t);
 
 def build(samples, out=OUT, comparators=None):
     data = collect(samples, comparators)
-    cmd = ('python3 analysis/triage.py --html ' + ' '.join(samples) +
+    # sample_id, not the raw arguments. Under a workflow engine the arguments are localised
+    # paths under a task container's _miniwdl_inputs/ that exist only inside that one container,
+    # so printing them verbatim under "Reproduce this page offline" gives the reader a command
+    # that cannot be run - the exact opposite of what the section promises.
+    cmd = ('python3 analysis/triage.py --html ' + ' '.join(triage.sample_id(x) for x in samples) +
            ('' if comparators is not False or len(samples) < 2 else ' --independent') +
-           ('' if out == OUT else f' --out={os.path.relpath(out, ROOT)}'))
+           # basename, not a relpath: out is absolute under a workflow engine and
+           # relpath(out, ROOT) renders as ../../mnt/... which is noise, not a command.
+           ('' if out == OUT else f' --out={os.path.basename(out)}'))
     fp = hashlib.sha256(
         open(os.path.join(ROOT, 'analysis', 'triage_rules.json'), 'rb').read() +
         open(os.path.join(ROOT, 'analysis', 'triage.py'), 'rb').read()).hexdigest()[:12]
