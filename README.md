@@ -167,7 +167,7 @@ at run time.
 **1. Clone and build.**
 
 ```bash
-git clone git@github.com:alvin8-git/HTX.git
+git clone https://github.com/alvin8-git/HTX.git
 cd HTX
 docker build -t htx-triage:1.0.0 .
 ```
