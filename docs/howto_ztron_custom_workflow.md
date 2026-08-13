@@ -157,9 +157,36 @@ Connect `Results` to `report_1` and stop. The `_en.html` files are picked up in 
 `*_en.html` first is what keeps each sample from being read twice, once per language.
 
 That also satisfies gate 8 for free: all five reports enter one process, so the cross-sample
-comparison is live. **No CWL scatter, and no second htx_triage node.** `report_2`…`report_5` exist
-for the case where reports arrive as separate files from separate upstream nodes; leave them empty
-here.
+comparison is live. **No CWL scatter, and no second htx_triage node.**
+
+### In Workflow Management, a PFI node is one sample
+
+That batched `Result/` comes from a PFI run outside the custom workflow. On the canvas each
+`pfi_v5_*` node takes a single `read1`/`read2` pair, so **five samples means five PFI nodes**, each
+with its own `result` holding one report. This is what `report_2`…`report_5` are for:
+
+| htx_triage input | Connect to |
+|---|---|
+| `report_1` | `pfi_v5_1/result` |
+| `report_2` | `pfi_v5_2/result` |
+| … | … |
+
+One PFI node per input. The platform will also let several nodes connect to a *single* input —
+`report_1` showing `Connections: pfi_v5_1/result, pfi_v5_2/result` — and the engine handles the
+resulting list fine, but it relies on how the platform merges multiple sources into one CWL input.
+Give each PFI node its own input slot and there is nothing to rely on.
+
+**Every PFI node must reach the same htx_triage node.** One triage node per PFI node would run
+without error and produce five reports that each say:
+
+```
+[gate 8] single sample - cross-sample enrichment is inert; non-threat taxa are reported on read
+count alone and are NOT shown to be site-specific.
+```
+
+The engine says so on every affected row rather than failing, so this misconfiguration is visible
+in the output — but only if someone reads it. Verified: five separate `result` directories through
+one node give five verdicts and a live comparison; the same report alone gives the banner above.
 
 Verified against this exact layout: five reports in, five TSVs and one report out, verdicts
 `MONITOR`, `NO ACTION`, `NO ACTION`, `INVESTIGATE`, `INVESTIGATE` — identical to running the five
