@@ -63,8 +63,15 @@ docker run --rm -v "$PWD:/data" htx-triage:1.0.0 \
 
 # the evidence report as well
 docker run --rm -v "$PWD:/data" htx-triage:1.0.0 \
-  triage --html --out=/data/out/evidence.html /data/WBM156_en.html /data/WBM232_en.html
+  triage --html --outdir=/data/out /data/WBM156_en.html /data/WBM232_en.html
 ```
+
+`--outdir` takes a **directory** and governs both the TSVs and the HTML report, which lands in it
+as `triage_report.html`. Use `--out=<path>` only to give the report a different name. Passing a
+filename to `--outdir` is now rejected rather than obeyed.
+
+**Everything you want to keep must be under a mounted path.** A container's own filesystem is
+discarded on exit, so `--outdir=/data/out` (mounted) survives and an unmounted path does not.
 
 `triage` is on `PATH` inside the image. **There is deliberately no `ENTRYPOINT`** — see
 [Two container gotchas](#two-container-gotchas-both-hit-during-this-work).

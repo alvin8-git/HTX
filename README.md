@@ -215,8 +215,12 @@ site enrichment.
 
 ```bash
 docker run --rm -v "$PWD:/data" htx-triage:1.0.0 \
-  triage --html --out=/data/out/triage_report.html /data/S1_en.html /data/S2_en.html
+  triage --html --outdir=/data/out /data/S1_en.html /data/S2_en.html
 ```
+
+`--outdir` is a **directory** and covers both the TSVs and the report (written to it as
+`triage_report.html`); `--out=<path>` names the report file instead. It must sit under a mounted
+path — a container's own filesystem is thrown away when it exits.
 
 > **The repository ships no sample data.** `WBM*_en.html` and the raw reads are gitignored — they
 > are not ours to redistribute. A fresh clone gives you the engine, the rule file and the docs, so

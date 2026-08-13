@@ -1176,12 +1176,24 @@ if __name__ == '__main__':
     # directories it generates, so neither can be baked into the image.
     _od = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--outdir=')), None)
     if _od:
+        # Refuse a filename here. `--outdir=out/triage_report.html` otherwise makedirs a DIRECTORY
+        # called triage_report.html and the report goes somewhere else entirely - inside a
+        # container, to a path that dies with it. Silent, and the exit code is 0.
+        if _od.endswith(('.html', '.htm', '.tsv')):
+            raise SystemExit(f'--outdir={_od} looks like a file. --outdir takes a DIRECTORY '
+                             f'(--outdir={os.path.dirname(_od) or "."}); to name the HTML report '
+                             f'use --out={_od}')
         OUTDIR = os.path.abspath(_od)
         os.makedirs(OUTDIR, exist_ok=True)
     # --independent: the samples are not from one site (different donors, different facilities), so
     # a fold-change between them measures who they came from, not where. Turns gate 8 off.
     comparators = False if '--independent' in sys.argv else None
     out = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--out=')), None)
+    # --outdir governs the HTML report too. Without this, `--html --outdir=/data/out` wrote the
+    # report to the image's own /opt/htx/analysis/ and lost it when the container exited, while
+    # printing a success line.
+    if out is None and _od:
+        out = os.path.join(OUTDIR, 'triage_report.html')
     if '--version' in sys.argv:
         print(f'htx-triage {VERSION}  rules={rules_fingerprint()}')
         raise SystemExit(0)
