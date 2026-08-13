@@ -1,5 +1,9 @@
 # Long-read stool samples — the run, and the five defects it exposed
 
+> **Donor labels.** The four samples are `DonorA`-`DonorD`. Their lab specimen accession
+> numbers are deliberately absent: this repository is public and those numbers identify human
+> donors' samples. The mapping lives with the source data, not in git.
+
 Four PFI long-read reports in `stool_sms/` (5,900–7,800 bp mean read length) were first put through
 `analysis/triage.py` exactly as it stood, with no rule added and no threshold touched. That run is
 the reason for everything below.
