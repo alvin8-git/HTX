@@ -1180,11 +1180,49 @@ def selftest():
                        ('VanA-type resistance protein', 'acquired'),
                        ('Tunicamycin resistance protein', 'environmental')):
         assert annotate_group('ZZZ', 'Drugs', mech)['class'] == want, mech
+    # --- CLI option parsing -----------------------------------------------------------------
+    # Both spellings, and --out must not swallow --outdir. A GUI that assembles the command line
+    # picks the spelling for you, and getting this wrong feeds the value in as a report path.
+    assert _opt(['--outdir=/a', 'x.html'], '--outdir') == ('/a', {0})
+    assert _opt(['--outdir', '/a', 'x.html'], '--outdir') == ('/a', {0, 1})
+    assert _opt(['--outdir=/a'], '--out') == (None, set())
+    assert _opt(['--outdir', '/a'], '--out') == (None, set())
+    assert _opt(['--out', '/a/p.html'], '--out') == ('/a/p.html', {0, 1})
+    assert _opt(['--outdir'], '--outdir') == (None, set())
+    assert _opt(['--outdir=', '.', 'x.html'], '--outdir') == ('.', {0, 1})
+    assert _opt(['--outdir=', '.'], '--out') == (None, set())
     print('selftest: all rule checks pass')
 
 
+def _opt(argv, name):
+    """Value of `--name=VALUE` or `--name VALUE`, and the indices it used up.
+
+    Both spellings, because a GUI that assembles the command line for you may not offer the choice.
+    MGI ZTRON's Custom Workflow form has a per-input "Separate value and prefix" toggle that is ON
+    by default, so a prefix of `--outdir=` emits `--outdir= .` and the value arrives as its own
+    argument - where it would otherwise be mistaken for a report path.
+    """
+    for i, a in enumerate(argv):
+        if a.startswith(name + '='):
+            v = a.split('=', 1)[1]
+            if v:
+                return v, {i}
+            # `--outdir= .` - the GUI's prefix carries the '=' and its "separate value" toggle
+            # then puts a space after it, leaving an empty-valued flag and a bare path.
+            if i + 1 < len(argv):
+                return argv[i + 1], {i, i + 1}
+            return None, {i}
+        if a == name and i + 1 < len(argv):
+            return argv[i + 1], {i, i + 1}
+    return None, set()
+
+
 if __name__ == '__main__':
-    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    _argv = sys.argv[1:]
+    _od, _c1 = _opt(_argv, '--outdir')
+    out, _c2 = _opt(_argv, '--out')
+    _used = _c1 | _c2
+    args = [a for i, a in enumerate(_argv) if i not in _used and not a.startswith('--')]
     # Expand globs ourselves. Inside a container the host shell cannot see /data, so
     # `-v "$PWD/Reports:/data" ... /data/*_en.html` reaches us as a literal pattern - and the host
     # shell may even expand it against the WRONG directory. Sorted, because glob order is the
@@ -1196,8 +1234,7 @@ if __name__ == '__main__':
     # Off by default so the baseline output is reproducible by anyone holding only the report.
     WITH_FASTQ = '--with-fastq' in sys.argv
     # --outdir: where TSVs land. A workflow engine runs the container with inputs and outputs in
-    # directories it generates, so neither can be baked into the image.
-    _od = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--outdir=')), None)
+    # directories it generates, so neither can be baked into the image. Parsed above, with --out.
     if _od:
         # Refuse a filename here. `--outdir=out/triage_report.html` otherwise makedirs a DIRECTORY
         # called triage_report.html and the report goes somewhere else entirely - inside a
@@ -1219,7 +1256,6 @@ if __name__ == '__main__':
     # --independent: the samples are not from one site (different donors, different facilities), so
     # a fold-change between them measures who they came from, not where. Turns gate 8 off.
     comparators = False if '--independent' in sys.argv else None
-    out = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--out=')), None)
     # --outdir governs the HTML report too. Without this, `--html --outdir=/data/out` wrote the
     # report to the image's own /opt/htx/analysis/ and lost it when the container exited, while
     # printing a success line.

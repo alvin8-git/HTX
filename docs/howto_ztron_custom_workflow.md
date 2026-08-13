@@ -103,8 +103,10 @@ enum. So each report is its own input item. Add as many as your largest batch:
 | `report_5` | File | off | on | *(blank)* | 5 |
 | `independent` | boolean | off | on | `--independent` | 9 |
 
-- **`outdir` is a string with Default `.`** and **Separate value and prefix OFF**, so it renders as
-  the single token `--outdir=.` rather than `--outdir= .`. Give every input a distinct Position.
+- **`outdir` is a string with Default `.`** Leave **Separate value and prefix** however you like:
+  the engine accepts `--outdir=.`, `--outdir= .` and `--outdir .` alike, so neither the toggle nor
+  a trailing `=` in the prefix can break it. All three are covered by `--selftest`, which the image
+  build runs. Give every input a distinct Position.
 - **No prefix on the reports.** The engine takes them as positional arguments.
 - **File Type**: `html`.
 - Leave **Separate value and prefix** at its default; it is irrelevant with no prefix.
