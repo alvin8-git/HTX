@@ -73,6 +73,26 @@ filename to `--outdir` is now rejected rather than obeyed.
 **Everything you want to keep must be under a mounted path.** A container's own filesystem is
 discarded on exit, so `--outdir=/data/out` (mounted) survives and an unmounted path does not.
 
+### Who owns the output files
+
+Under a **rootful** daemon (the default on CentOS 7, RHEL, and most servers) the container runs as
+root, so everything it writes to your mount lands root-owned and you need `sudo` to delete it.
+Claim it back by telling Docker which uid to run as:
+
+```bash
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/Reports:/data" htx-triage:1.0.0 \
+  triage --html --outdir=/data/out '/data/*_en.html'
+```
+
+The mounted directory must already be writable by that uid — which it is, if you created it.
+
+**Do not add `--user` under rootless Docker.** Rootless already maps *you* to container root, so
+files come out owned by you; passing your uid explicitly maps it to a *subuid* instead, and the
+run dies with `PermissionError` on its own output directory. This is why the image sets no `USER`:
+the correct answer is the daemon's, and it is opposite in the two cases.
+
+`docker info -f '{{.SecurityOptions}}'` says which you have — rootless reports `name=rootless`.
+
 ### Quote your globs
 
 ```bash
