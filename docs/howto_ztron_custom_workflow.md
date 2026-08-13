@@ -13,16 +13,16 @@ and an inputs object carrying `class "File"`, `basename`, `nameroot`, `nameext`,
 `Separate value and prefix` and `Shell reference` are the GUI names for CWL's
 `inputBinding.prefix`, `.position`, `.separate` and `shellQuote`.
 
-The appliance does ship a WDL importer — `wdl_script/miniwdl/tools/wdlAcwlTransformer.py`, which
-parses WDL with miniwdl and converts it to CWL — so WDL is an *entry format*, not the runtime. CWL
-is what executes.
+The appliance reaches CWL through `wdl_script/miniwdl/tools/wdlAcwlTransformer.py`, which parses
+WDL with miniwdl and converts it. **Submitting the Create Task form runs that transformer too** —
+if it fails, the component is never created and simply does not appear in the PIPELINE COMPONENT
+list, with no error shown in the UI. See
+[When the component does not appear](#when-the-component-does-not-appear).
 
 Two consequences:
 
-1. **[`wdl/triage.wdl`](../wdl/triage.wdl) is not the path of least resistance on ZTRON.** The
-   Pipeline Component form below is the direct CWL route and does not touch the transformer. The
-   WDL stays in the repo for Cromwell and miniwdl. The container is the portable part; the workflow
-   language is not.
+1. **[`wdl/triage.wdl`](../wdl/triage.wdl) is not what runs on ZTRON.** It stays in the repo for
+   Cromwell and miniwdl. The container is the portable part; the workflow language is not.
 2. **The platform generates ONE command line.** You do not write a shell script, so a component
    cannot chain two invocations. This is why `--html` was changed to emit the TSVs in the same run
    when `--outdir` is given — see [One component, all outputs](#one-component-all-outputs).
@@ -161,6 +161,39 @@ because it writes a shell script. A CWL component gets one command line.
 
 So `--html` now **also emits the TSVs when `--outdir` is given** — one invocation, every output.
 Interactive use in the repo (`--html --out=page.html`) is unchanged and still writes only the page.
+
+## When the component does not appear
+
+A submitted task that never shows up in *Pipeline Component* is an appliance fault, not a fault in
+the form. Check the platform log for a traceback ending:
+
+```
+File ".../miniwdl/tools/wdlAcwlTransformer.py", line 9, in <module>
+...
+ModuleNotFoundError: No module named 'regex._regex'
+```
+
+`regex` is a Python package with a compiled C extension. That error means the pure-Python half is
+installed and `regex/_regex*.so` is not — a package vendored without its binary, or copied from a
+machine with a different Python version or CPU architecture. It fails at **import** time, before
+any input is read, so no component definition, container or command line can affect it.
+
+```bash
+ls /home/ztron/app_software/wdl_script/miniwdl/tools/venv/regex/   # expect _regex*.so; it is absent
+```
+
+The repair is to reinstall the package into that same directory with the interpreter the
+transformer runs under:
+
+```bash
+python3 -m pip install --target /home/ztron/app_software/wdl_script/miniwdl/tools/venv \
+  --upgrade --force-reinstall regex
+```
+
+On CentOS 7, confirm pip resolves a manylinux wheel; a source build needs `gcc` and
+`python3-devel`. **Raise it with MGI support rather than patching by hand** — this is vendor
+software on a production instrument, and a hand-fixed venv will be reverted by the next appliance
+update.
 
 ## Enabling and wiring
 
