@@ -140,11 +140,30 @@ broken component.
 An upstream app hands you its whole output slot, not the one file inside it. ZTRON's PFI app exposes
 `STDOUT`, `STDERR` and `Results`; `Results` is a directory, which will not drop onto a `File` input.
 So **a report argument may also be a directory** — the engine takes every `*_en.html` in it, sorted,
-and falls back to any `*.html`. Wire `Results` straight through, or change `report_1`'s Type to
-match the port ZTRON offers.
+falling back to any `*.html`.
 
-One PFI run produces one sample. Five samples means five PFI nodes feeding `report_1`…`report_5` of
-**one** htx_triage node, for the reason below.
+**A single PFI run already batches its samples**, which makes this one wire. A five-sample run
+produces one `Result/` holding every report:
+
+```
+.../mps.result/Result/
+  WBM156_en.html  WBM156_cn.html  WBM156.tar.gz  WBM156/
+  WBM174_en.html  WBM174_cn.html  WBM174.tar.gz  WBM174/
+  …
+```
+
+Connect `Results` to `report_1` and stop. The `_en.html` files are picked up in sorted order; the
+`_cn.html` translations, the per-sample subdirectories and the tarballs are ignored — matching
+`*_en.html` first is what keeps each sample from being read twice, once per language.
+
+That also satisfies gate 8 for free: all five reports enter one process, so the cross-sample
+comparison is live. **No CWL scatter, and no second htx_triage node.** `report_2`…`report_5` exist
+for the case where reports arrive as separate files from separate upstream nodes; leave them empty
+here.
+
+Verified against this exact layout: five reports in, five TSVs and one report out, verdicts
+`MONITOR`, `NO ACTION`, `NO ACTION`, `INVESTIGATE`, `INVESTIGATE` — identical to running the five
+files by name.
 
 ### Why all reports go to ONE component instance
 
