@@ -1208,6 +1208,14 @@ if __name__ == '__main__':
                              f'use --out={_od}')
         OUTDIR = os.path.abspath(_od)
         os.makedirs(OUTDIR, exist_ok=True)
+        # Check now, not when the first file is written. An outdir that exists but belongs to
+        # someone else is the commonest container failure there is - a mount left root-owned by an
+        # earlier rootful run - and it otherwise surfaces as a traceback from deep inside the
+        # report writer, after all the analysis has been done and thrown away.
+        if not os.access(OUTDIR, os.W_OK):
+            raise SystemExit(f'--outdir={OUTDIR} is not writable by uid {os.getuid()}. In a '
+                             f'container this usually means the directory was created by an '
+                             f'earlier run as root: remove it (sudo rm -rf) and run again.')
     # --independent: the samples are not from one site (different donors, different facilities), so
     # a fold-change between them measures who they came from, not where. Turns gate 8 off.
     comparators = False if '--independent' in sys.argv else None
