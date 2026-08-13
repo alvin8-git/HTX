@@ -190,20 +190,22 @@ docker run --rm htx-triage:1.0.0 triage --version
 # htx-triage 1.0.0  rules=257ef531791a       <- record this with your results
 ```
 
-**3. Run it on your own report.** Put the PFI HTML reports in a directory, mount it at `/data`:
+**3. Run it on your own reports.** Put the PFI HTML reports in one directory and mount **that
+directory** at `/data`:
 
 ```bash
-mkdir -p out
-docker run --rm -v "$PWD:/data" htx-triage:1.0.0 \
-  triage --outdir=/data/out /data/MYSAMPLE_en.html
+mkdir -p Reports          # then copy your *_en.html files into it
+
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/Reports:/data" htx-triage:1.0.0 \
+  triage --outdir=/data/out '/data/MYSAMPLE_en.html'
 ```
 
-For a batch, name every report in **one** command — the cross-sample enrichment gate compares them
-against each other and needs them in one process:
+Name every report of a batch in **one** command — the cross-sample enrichment gate compares them
+against each other and needs them in one process. A quoted glob is the easy way:
 
 ```bash
-docker run --rm -v "$PWD:/data" htx-triage:1.0.0 \
-  triage --outdir=/data/out /data/S1_en.html /data/S2_en.html /data/S3_en.html
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/Reports:/data" htx-triage:1.0.0 \
+  triage --outdir=/data/out '/data/*_en.html'
 ```
 
 Add `--independent` when the samples are **not** one batch from one site (different donors,
@@ -211,16 +213,29 @@ different facilities, different sequencing runs), or a fold-change between them 
 site enrichment.
 
 **4. Get the evidence report** — the same HTML report described under
-[Triage engine](#triage-engine), with the evidence behind every verdict:
+[Triage engine](#triage-engine), with the evidence behind every verdict. Same command plus
+`--html`:
 
 ```bash
-docker run --rm -v "$PWD:/data" htx-triage:1.0.0 \
-  triage --html --outdir=/data/out /data/S1_en.html /data/S2_en.html
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/Reports:/data" htx-triage:1.0.0 \
+  triage --html --outdir=/data/out '/data/*_en.html'
 ```
 
-`--outdir` is a **directory** and covers both the TSVs and the report (written to it as
-`triage_report.html`); `--out=<path>` names the report file instead. It must sit under a mounted
-path — a container's own filesystem is thrown away when it exits.
+Four things about that command line, each of which will bite otherwise:
+
+- **`-v "$PWD/Reports:/data"` puts the reports at `/data/`, not `/data/Reports/`.** A mount
+  replaces the container path with the host directory's *contents*.
+- **Quote the glob.** `/data` exists only inside the container, so an unquoted `/data/*_en.html`
+  is expanded by your shell against the *host*, matches nothing, and arrives as a literal `*`.
+  Quoted, the engine expands it container-side. Listing the files by hand works too.
+- **`--outdir` is a directory**, and covers both the TSVs and the report, which lands in it as
+  `triage_report.html`. Use `--out=<path>` to name the report file instead. Either way it must sit
+  under the mount — a container's own filesystem is discarded when it exits.
+- **`--user "$(id -u):$(id -g)"` keeps the output yours.** Without it a rootful daemon (the
+  default on CentOS/RHEL and most servers) writes root-owned files into your directory. **Omit it
+  under rootless Docker**, which already maps you to container root — passing your uid there maps
+  it to a subuid and the run fails on its own output directory. `docker info -f
+  '{{.SecurityOptions}}'` reports `name=rootless` if that is you.
 
 > **The repository ships no sample data.** `WBM*_en.html` and the raw reads are gitignored — they
 > are not ours to redistribute. A fresh clone gives you the engine, the rule file and the docs, so
