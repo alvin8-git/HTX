@@ -1231,6 +1231,13 @@ if __name__ == '__main__':
     if '--selftest' in sys.argv:
         selftest()
     elif '--html' in sys.argv:
+        # With an explicit --outdir, emit the TSVs in the same run. A WDL task writes a shell
+        # script and can just call this twice, but a CWL platform (MGI ZTRON's Custom Workflow)
+        # generates ONE command line from the input form, so a component that cannot produce both
+        # in one invocation has to be built and wired twice. Guarded on --outdir so interactive
+        # `--html --out=x.html` in the repo still writes only the page it was asked for.
+        if _od:
+            run(args or SAMPLES, comparators)
         import triage_report
         path, n = triage_report.build(args or SAMPLES, comparators=comparators,
                                       # abspath against the CWD, not ROOT. Run from the repo root

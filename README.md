@@ -36,6 +36,7 @@ Full analysis: **[`docs/biothreat_assessment.md`](docs/biothreat_assessment.md)*
 | [`docs/pfidb_v5_comparison.md`](docs/pfidb_v5_comparison.md) | Reference | PFIDB v5.0 vs the kingdom-split lists, and the three WHO organisms that could never fire. |
 | [`docs/howto_triage_new_sample.md`](docs/howto_triage_new_sample.md) | How-to | Run the engine on a report you have never seen. |
 | [`docs/howto_run_containerized.md`](docs/howto_run_containerized.md) | How-to | Run it in Docker and as a WDL task in a larger workflow. |
+| [`docs/howto_ztron_custom_workflow.md`](docs/howto_ztron_custom_workflow.md) | How-to | Add it to MGI ZTRON as a Custom Workflow component, field by field. |
 | [`docs/triage_prototype_results.md`](docs/triage_prototype_results.md) | Reference | Where the engine agrees and disagrees with the manual analysis. |
 | [`docs/zymo_validation.md`](docs/zymo_validation.md) | Reference | Measured sensitivity, specificity and quantitation against a certified standard. |
 | [`docs/stool_sms_longread_run.md`](docs/stool_sms_longread_run.md) | Reference | A long-read stool batch, the five defects it exposed, and what each fix changed. |
