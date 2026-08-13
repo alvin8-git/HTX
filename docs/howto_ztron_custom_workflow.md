@@ -173,14 +173,18 @@ File ".../miniwdl/tools/wdlAcwlTransformer.py", line 9, in <module>
 ModuleNotFoundError: No module named 'regex._regex'
 ```
 
-`regex` is a Python package with a compiled C extension. That error means the pure-Python half is
-installed and `regex/_regex*.so` is not — a package vendored without its binary, or copied from a
-machine with a different Python version or CPU architecture. It fails at **import** time, before
-any input is read, so no component definition, container or command line can affect it.
+`regex` is a Python package with a compiled C extension, and the error means that extension cannot
+be imported. It fails at **import** time, before any input is read, so no component definition,
+container or command line can affect it.
 
 ```bash
-ls /home/ztron/app_software/wdl_script/miniwdl/tools/venv/regex/   # expect _regex*.so; it is absent
+ls /home/ztron/app_software/wdl_script/miniwdl/tools/venv/regex/
 ```
+
+Look at the **interpreter tag** on the `.so`, not merely whether one exists. On the appliance seen
+here the file was present as `_regex.cpython-310-x86_64-linux-gnu.so` — built for Python 3.10,
+while the transformer runs Python 3.6, which will not load it. A `.so` for the wrong Python is as
+unimportable as no `.so` at all, and reads as "installed" to anyone checking with `ls`.
 
 The repair is to reinstall the package into that same directory with the interpreter the
 transformer runs under:
@@ -190,10 +194,14 @@ python3 -m pip install --target /home/ztron/app_software/wdl_script/miniwdl/tool
   --upgrade --force-reinstall regex
 ```
 
-On CentOS 7, confirm pip resolves a manylinux wheel; a source build needs `gcc` and
-`python3-devel`. **Raise it with MGI support rather than patching by hand** — this is vendor
-software on a production instrument, and a hand-fixed venv will be reverted by the next appliance
-update.
+Check the wheel pip reports: a `cp36` tag confirms it matched the transformer's interpreter (this
+fix landed `regex-2023.8.8-cp36-cp36m-manylinux_2_17_x86_64`). A source build would need `gcc` and
+`python3-devel`.
+
+**Tell MGI support even though the workaround holds.** This is vendor software on a production
+instrument: the next appliance update will overwrite the directory and the symptom returns, and a
+Python-3.10 extension sitting in a Python-3.6 tool suggests other vendored packages may carry the
+same mismatch.
 
 ## Enabling and wiring
 
