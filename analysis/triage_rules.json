@@ -1986,5 +1986,33 @@
       "note": "Rapidly growing non-tuberculous mycobacterium, difficult to treat.",
       "taxid": "36809"
     }
+  },
+  "_vf_core_comment": "Core virulence determinants per clinical_watchlist organism. VFDB returns every factor it can match — 121 distinct ones for A. baumannii in WBM232 — ranked by sequencing depth. Depth measures how much was sequenced, NOT how much a gene matters, so the ranked list alone cannot answer 'is this organism virulent'. This key names the handful of determinants whose presence or absence is actually informative for each organism, so the report can render '2 of 5 core determinants present' instead of '121 factors detected'. SAME EVIDENCE CAVEAT AS EVERY OTHER VFDB ROW: a hit is a match against a reference protein whose source genome is that strain, not read-level linkage to this sample's organism. Presence here NEVER changes a verdict — this is a reporting aid, read by triage_report.py only, and no gate in triage.py consults it. 'match' is a case-insensitive substring tested against the VFDB 'Virulence Factor' name. CURATION STATUS: only Acinetobacter baumannii is populated. The other 24 watchlist organisms need a literature pass before their sets can be trusted; until an organism appears here the report says 'not yet curated' and asserts nothing, which is the correct behaviour for an uncurated organism.",
+  "vf_core": {
+    "Acinetobacter baumannii": {
+      "_source": "Harding, Hennon & Feldman 2018, Nat Rev Microbiol 16:91 — uncomplicated, well-replicated determinants only; deliberately excludes the efflux and iron-acquisition families that are near-universal in the genus.",
+      "factors": [
+        {
+          "match": "csu",
+          "role": "Csu pili — adhesion to abiotic surfaces, biofilm initiation"
+        },
+        {
+          "match": "pga",
+          "role": "PNAG polysaccharide — biofilm matrix"
+        },
+        {
+          "match": "ompA",
+          "role": "OmpA — epithelial adhesion, serum resistance, apoptosis induction"
+        },
+        {
+          "match": "bap",
+          "role": "Biofilm-associated protein — biofilm maturation"
+        },
+        {
+          "match": "lpsB",
+          "role": "LpsB glycosyltransferase — LPS core, serum resistance"
+        }
+      ]
+    }
   }
 }

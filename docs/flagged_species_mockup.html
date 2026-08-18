@@ -1,0 +1,369 @@
+<title>Flagged Species</title>
+<style>
+:root{
+  color-scheme: light;
+  --plane:#f9f9f7; --surface:#fcfcfb; --surface-2:#f2f2ee;
+  --ink:#0b0b0b; --ink-2:#52514e; --muted:#6d6b66; --ghost:#6f6f68; --accent-tx:#276ec5;
+  --grid:#e1e0d9; --axis:#c3c2b7; --hair:rgba(11,11,11,.11);
+  --accent:#2a78d6;
+  --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])){
+  color-scheme: dark;
+  --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#232322;
+  --ink:#fff; --ink-2:#c3c2b7; --muted:#a3a199; --ghost:#8a8a88; --accent-tx:#3f8be6;
+  --grid:#2c2c2a; --axis:#383835; --hair:rgba(255,255,255,.12);
+  --accent:#3987e5;
+}}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#232322;
+  --ink:#fff; --ink-2:#c3c2b7; --muted:#a3a199; --ghost:#8a8a88; --accent-tx:#3f8be6;
+  --grid:#2c2c2a; --axis:#383835; --hair:rgba(255,255,255,.12);
+  --accent:#3987e5;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--plane);color:var(--ink);font-size:14px;line-height:1.5;
+  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+.mono{font-family:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+h1,h2,h3{margin:0;font-weight:600;text-wrap:balance}
+h1{font-size:18px;letter-spacing:-.01em}
+h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h3{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2)}
+p{margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding:0 26px}
+i.sp{font-style:italic}
+
+.mast{background:var(--surface);border-bottom:1px solid var(--hair)}
+.mast .wrap{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;padding-top:15px;padding-bottom:14px}
+.ctx{font-size:12px;color:var(--ink-2)}
+.prov{margin-left:auto;font-size:11px;color:var(--muted)}
+.prov b{color:var(--ink-2);font-weight:600}
+
+/* coverage qualifier — governs everything below */
+.cov{background:var(--surface-2);border-bottom:1px solid var(--hair)}
+.cov .wrap{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding-top:12px;padding-bottom:12px}
+.covmeter{display:flex;align-items:center;height:26px;flex:none}
+.covbar{display:flex;gap:2px;width:180px;height:11px}
+.covbar .f{background:var(--accent);border-radius:3px 0 0 3px}
+.covbar .h{border:1px solid var(--muted);border-left:0;border-radius:0 3px 3px 0;
+  background-image:repeating-linear-gradient(45deg,transparent 0 4px,var(--muted) 4px 5px)}
+.covtxt{font-size:12.5px;color:var(--ink-2)}
+.covtxt b{color:var(--ink);font-weight:600}
+
+main .wrap{padding-top:24px;padding-bottom:60px}
+.sechead{display:flex;align-items:baseline;gap:12px;margin:26px 0 9px}
+.sechead:first-child{margin-top:0}
+.sechead .hint{font-size:11.5px;color:var(--muted);margin-left:auto;text-align:right}
+
+/* ── the ranked table ───────────────────────────────── */
+.band{border:1px solid var(--hair);border-radius:7px;background:var(--surface);overflow:hidden}
+.band+.band{margin-top:9px}
+details{border-top:1px solid var(--hair)}
+details:first-of-type{border-top:0}
+summary{list-style:none;cursor:pointer;display:grid;
+  grid-template-columns:14px minmax(150px,1.35fr) 74px 96px minmax(120px,1fr) minmax(96px,.7fr) 92px 16px;
+  gap:14px;align-items:stretch;padding:11px 15px;min-height:44px}
+summary::-webkit-details-marker{display:none}
+summary:hover{background:var(--surface-2)}
+summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.vstripe{width:4px;align-self:stretch;min-height:30px;border-radius:2px}
+.sp-name{display:block;font-weight:600;font-size:13.5px;line-height:1.25}
+.sp-sub{display:block;font-size:11px;color:var(--muted);margin-top:1px}
+.cell-l{display:block;font-size:11px;color:var(--muted);letter-spacing:.03em;text-transform:uppercase}
+.cell-v{display:block;font-size:12.5px;color:var(--ink-2);margin-top:1px}
+.tri{color:var(--ghost);font-size:11px;transition:transform .12s}
+details[open] .tri{transform:rotate(90deg)}
+.vlabel{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;letter-spacing:.04em}
+.vlabel .ic{width:12px;height:12px;flex:none}
+
+/* mini class-checklist inside the summary row */
+.classbar{display:flex;gap:3px;margin-top:3px}
+.cb{width:15px;height:15px;border-radius:3px;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff}
+.cb.no{background:transparent;border:1px solid var(--axis);color:var(--muted)}
+.cb.na{border:1px solid var(--muted);color:var(--muted);
+  background-image:repeating-linear-gradient(45deg,transparent 0 3px,var(--muted) 3px 4px)}
+
+/* ── the expanded evidence ──────────────────────────── */
+.body{padding:4px 15px 20px 43px;border-top:1px dashed var(--hair);background:var(--surface-2)}
+.blk{margin-top:18px}
+.blk>h3{margin-bottom:7px}
+.q{font-size:12px;color:var(--muted);margin-bottom:9px;max-width:78ch}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{text-align:left;font-weight:600;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--muted);padding:0 10px 5px 0;border-bottom:1px solid var(--grid);white-space:nowrap}
+td{padding:6px 10px 6px 0;border-bottom:1px solid var(--grid);vertical-align:top}
+td.n{text-align:right;padding-right:16px;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+.tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.04em;padding:1px 5px;
+  border-radius:3px;vertical-align:1px}
+.code{font-weight:700;font-size:11px;letter-spacing:.03em;white-space:nowrap}
+.code.met{color:var(--ink)}
+.code.unmet{color:var(--muted)}
+.met{color:var(--ink)}
+.unmet{color:var(--muted)}
+.note{font-size:11.5px;color:var(--muted);margin-top:8px;max-width:88ch}
+.note b{color:var(--ink-2);font-weight:600}
+.verdictline{margin-top:12px;padding:9px 13px;border-radius:5px;background:var(--surface);
+  border:1px solid var(--hair);font-size:12.5px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.verdictline b{font-weight:600}
+.deep{font-size:11.5px;color:var(--accent-tx);text-decoration:none;border-bottom:1px solid currentColor;
+  display:inline-block;min-height:24px;line-height:24px}
+.rest{padding:11px 15px;font-size:12.5px;color:var(--ink-2);display:flex;gap:10px;
+  align-items:center;flex-wrap:wrap;min-height:44px}
+.rest b{color:var(--ink);font-weight:600}
+@media (max-width:820px){
+  summary{grid-template-columns:14px 1fr 16px;gap:10px}
+  summary>.hide-s{display:none}
+  .body{padding-left:15px}
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+ <defs>
+  <g id="i-critical"><circle cx="6" cy="6" r="5.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 3.2v3.6M6 8.7v.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></g>
+  <g id="i-serious"><path d="M6 1.3 11.2 10.6H.8Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 4.9v2.4M6 8.7v.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></g>
+  <g id="i-warn"><rect x="1.1" y="1.1" width="9.8" height="9.8" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6 3.7v3.1M6 8.6v.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></g>
+  <g id="i-untested"><circle cx="6" cy="6" r="5.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.1 2.1"/><path d="M4.3 4.6a1.75 1.75 0 1 1 1.9 2v1.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="6.2" cy="9.3" r=".75" fill="currentColor"/></g>
+ </defs>
+</svg>
+
+<header class="mast"><div class="wrap">
+  <h1>Flagged species</h1>
+  <span class="ctx">5 swabs &middot; WBM156, 174, 179, 185, 232 &middot; 444 taxon rows, 218 AMR rows</span>
+  <span class="prov">rules <b>447 entries</b> &middot; PFI DNA library &middot; <b>mockup</b> — every value below is read from <span class="mono">analysis/triage_WBM*.tsv</span></span>
+</div></header>
+
+<section class="cov"><div class="wrap">
+  <span class="covmeter"><span class="covbar"><span class="f" style="flex:21"></span><span class="h" style="flex:25"></span></span></span>
+  <span class="covtxt"><b>21 of 46</b> CDC agents assessable on this run (45.7%) &mdash;
+    the other <b>25</b> are RNA-genome agents and the library was DNA. Not negative: <b>never tested</b>.</span>
+</div></section>
+
+<main><div class="wrap">
+
+<div class="sechead">
+  <h2>Flagged &mdash; needs an analyst</h2>
+  <span class="hint">ranked by verdict, then read count</span>
+</div>
+
+<div class="band">
+<details open>
+  <summary>
+    <span class="vstripe" style="background:var(--serious)"></span>
+    <span>
+      <span class="sp-name"><i class="sp">Acinetobacter baumannii</i></span>
+      <span class="sp-sub">taxid 470 &middot; WHO critical priority</span>
+    </span>
+    <span class="hide-s">
+      <span class="cell-l">Sample</span>
+      <span class="cell-v mono">WBM232</span>
+    </span>
+    <span class="hide-s">
+      <span class="cell-l">Abundance</span>
+      <span class="cell-v mono">6,496 rd &middot; 4.72%</span>
+    </span>
+    <span class="hide-s">
+      <span class="cell-l">Escalating AMR classes</span>
+      <span class="classbar" title="betalactams / Aminoglycosides / Fluoroquinolones / Lipopeptides" style="margin-top:2px">
+        <span class="cb" style="background:var(--warning);color:#0b0b0b">B</span>
+        <span class="cb" style="background:var(--warning);color:#0b0b0b">A</span>
+        <span class="cb no">F</span>
+        <span class="cb no">L</span>
+      </span>
+    </span>
+    <span class="hide-s">
+      <span class="cell-l">Virulence</span>
+      <span class="cell-v mono">121 factors</span>
+    </span>
+    <span class="hide-s">
+      <span class="vlabel" style="color:var(--serious)"><svg class="ic" viewBox="0 0 12 12"><use href="#i-serious"/></svg>CONFIRM</span>
+      <span class="cell-v mono" style="font-size:11px">4 met &middot; 1 against</span>
+    </span>
+    <span class="tri">&#9654;</span>
+  </summary>
+
+  <div class="body">
+
+    <div class="blk">
+      <h3>1 &middot; Which AMR classes would raise this organism</h3>
+      <p class="q">Fixed per organism by <span class="mono">clinical_watchlist["Acinetobacter baumannii"].escalating_classes</span>
+        &mdash; four classes, decided before the run, not chosen after seeing the data.</p>
+      <table>
+        <tr><th>Class</th><th>Status</th><th>Genes co-detected in this sample</th><th class="n">Breadth</th><th class="n">Depth</th><th>Call</th></tr>
+        <tr><td class="met"><b>betalactams</b></td>
+            <td><span class="tag" style="background:var(--warning);color:#0b0b0b">DETECTED</span></td>
+            <td class="mono">CTX (MEG_2378)</td><td class="n mono">60.6%</td><td class="n mono">11.69x</td><td class="mono">partial</td></tr>
+        <tr><td></td><td></td><td class="mono">BLAA (MEG_1247)</td><td class="n mono">62.1%</td><td class="n mono">5.18x</td><td class="mono">partial</td></tr>
+        <tr><td class="met"><b>Aminoglycosides</b></td>
+            <td><span class="tag" style="background:var(--warning);color:#0b0b0b">DETECTED</span></td>
+            <td class="mono">ANT3-DPRIME (MEG_899)</td><td class="n mono">72.6%</td><td class="n mono">20.94x</td><td class="mono">partial</td></tr>
+        <tr><td></td><td></td><td class="mono">AAC6-PRIME (MEG_105)</td><td class="n mono">63.7%</td><td class="n mono">14.08x</td><td class="mono">partial</td></tr>
+        <tr><td></td><td></td><td class="mono">APH3-DPRIME (MEG_1019)</td><td class="n mono">62.2%</td><td class="n mono">11.97x</td><td class="mono">partial</td></tr>
+        <tr><td class="unmet">Fluoroquinolones</td>
+            <td><span class="tag" style="border:1px solid var(--axis);color:var(--muted)">NONE</span></td>
+            <td class="mono" style="color:var(--muted)">efflux only &mdash; ADEN, ADEL, MEXT (multidrug, not FQ-specific)</td>
+            <td class="n"></td><td class="n"></td><td></td></tr>
+        <tr><td class="unmet">Lipopeptides</td>
+            <td><span class="tag" style="border:1px solid var(--axis);color:var(--muted)">NONE</span></td>
+            <td class="mono" style="color:var(--muted)">no colistin / <span class="mono">mcr</span> gene detected &mdash; last-line agent intact</td>
+            <td class="n"></td><td class="n"></td><td></td></tr>
+      </table>
+      <p class="note"><b>Every call in this table is PARTIAL</b> (breadth &lt; 80%): gene family established, specific
+        allele not. And MEGARes carries no organism column &mdash; these genes are <b>in the sample</b>, not attributed
+        to this species. The most abundant competing host here is <i class="sp">Staphylococcus epidermidis</i>
+        at 24,453 reads (4&times; this taxon), itself a documented host of AAC6-PRIME.
+        <b>None of these genes changed the verdict.</b> Culture with AST to establish linkage.</p>
+    </div>
+
+    <div class="blk">
+      <h3>2 &middot; Virulence factors present &mdash; and whether they matter</h3>
+      <p class="q">326 raw VFDB rows collapse to <b>121 distinct factors</b>. Depth measures how much was sequenced,
+        not how dangerous a gene is &mdash; so the ranked list alone cannot answer &ldquo;is it virulent&rdquo;.</p>
+      <table>
+        <tr><th>Core determinant</th><th>Role</th><th>Status</th><th class="n">Breadth</th><th class="n">Depth</th></tr>
+        <tr><td class="mono met">csuB</td><td>Csu pili &mdash; abiotic-surface adhesion, biofilm initiation</td>
+            <td><span class="tag" style="background:var(--warning);color:#0b0b0b">DETECTED</span></td>
+            <td class="n mono">48.5%</td><td class="n mono">13.32x</td></tr>
+        <tr><td class="mono met">pgaC</td><td>PNAG synthesis &mdash; biofilm matrix</td>
+            <td><span class="tag" style="background:var(--warning);color:#0b0b0b">DETECTED</span></td>
+            <td class="n mono">46.2%</td><td class="n mono">12.37x</td></tr>
+        <tr><td class="mono unmet" colspan="5" style="color:var(--muted);font-family:inherit">
+            <b style="color:var(--ink-2)">ompA, bap, lpsB, bauA</b> and the rest of the core set
+            &mdash; <span class="tag na" style="border:1px solid var(--muted);color:var(--muted)">NOT YET CURATED</span>
+            no <span class="mono">vf_core</span> list exists in the ruleset today, so absence cannot be asserted.</td></tr>
+      </table>
+      <p class="note"><b>This block is the proposal, not the current state.</b> The two rows above are real measurements;
+        the core-determinant set they are checked against does not exist yet. Curating one per watchlist organism
+        (25 species, same shape as the 24 existing <span class="mono">marker_patterns</span>) is what turns
+        &ldquo;121 factors detected&rdquo; into &ldquo;2 of 5 core determinants present&rdquo;.
+        Attribution stays VFDB&rsquo;s own: a read matched a protein whose reference genome is that strain.
+        <b>Reference match, not read-level linkage to this sample&rsquo;s organism.</b></p>
+      <p class="note" style="margin-top:6px"><a class="deep" href="#">Show all 121 factors ranked by depth &rarr;</a></p>
+    </div>
+
+    <div class="blk">
+      <h3>3 &middot; Criteria ledger &mdash; why this row is CONFIRM</h3>
+      <p class="q">Each line is one gate of the cascade, named and given its measured value.
+        The gates still decide the verdict; this table only publishes the tick-list they already produce.</p>
+      <table>
+        <tr><th style="width:52px">Code</th><th>Criterion</th><th>Measured</th><th>Gate</th></tr>
+        <tr><td class="code met">&#10003; PM1</td>
+            <td class="met">Organism on the clinical watchlist</td>
+            <td>WHO critical priority pathogen</td><td class="mono">1b</td></tr>
+        <tr><td class="code met">&#10003; PP2</td>
+            <td class="met">Cross-sample enrichment above threshold</td>
+            <td class="mono">6.0x vs other samples (floor 5.0x)</td><td class="mono">8</td></tr>
+        <tr><td class="code met">&#10003; PP1</td>
+            <td class="met">Real reads above the floor</td>
+            <td class="mono">6,496 reads (floor 50)</td><td class="mono">1</td></tr>
+        <tr><td class="code met">&#10003; PM2</td>
+            <td class="met">Acquired AMR in an escalating class, partial call</td>
+            <td>2 of 4 classes &mdash; betalactams, Aminoglycosides</td><td class="mono">3&ndash;5</td></tr>
+        <tr><td class="code met">&#10007; BM1</td>
+            <td class="met">Bracken estimate inflated over real reads &mdash; <b>counts against</b></td>
+            <td class="mono">121,337 est / 6,496 real = 19x (floor 10x) &rarr; judged on real</td><td class="mono">7</td></tr>
+        <tr><td class="code unmet">&#9675; PS3</td>
+            <td class="unmet">Most abundant documented host of the gene, or &ge;20% of host pool</td>
+            <td style="color:var(--muted)">not met &mdash; <i class="sp">S. epidermidis</i> is 4&times; more abundant</td><td class="mono">8</td></tr>
+        <tr><td class="code unmet">&#9675; NA3</td>
+            <td class="unmet">No confirmatory or supporting marker defined for this agent</td>
+            <td style="color:var(--muted)">gate 10 did not run &mdash; not an absence of evidence</td><td class="mono">10</td></tr>
+        <tr><td class="code unmet">&#9675; PVS1</td>
+            <td class="unmet">CDC threat-list agent with its confirmatory marker</td>
+            <td style="color:var(--muted)">not a CDC agent &mdash; <b>ceiling is CONFIRM</b></td><td class="mono">1b</td></tr>
+      </table>
+      <div class="verdictline">
+        <span><b>4 criteria met, 1 against, 3 not applicable</b></span>
+        <span style="color:var(--ghost)">&rarr;</span>
+        <span class="vlabel" style="color:var(--serious)"><svg class="ic" viewBox="0 0 12 12"><use href="#i-serious"/></svg>CONFIRM</span>
+        <span style="color:var(--ink-2)">ceiling applied: ESCALATE stays reserved for a threat-list agent with its confirmatory marker.</span>
+      </div>
+      <p class="note"><b>What the wall of text hid:</b> this CONFIRM rests on watchlist membership plus 6&times;
+        enrichment &mdash; <b>not</b> on the 13 co-detected resistance genes. The current report leads with the gene
+        table, which reads as if the AMR drove the call. The ledger makes the actual basis unmissable.</p>
+      <p class="note" style="margin-top:6px"><a class="deep" href="#">Full evidence card &mdash; 1,574 words, 40-row VFDB table, reproduce-offline command &rarr;</a></p>
+    </div>
+  </div>
+</details>
+</div>
+
+<div class="sechead">
+  <h2>Present, but the answer is unavailable</h2>
+  <span class="hint">detected above the read floor &middot; gate 10 could not run</span>
+</div>
+
+<div class="band">
+<details>
+  <summary>
+    <span class="vstripe" style="background:var(--muted);background-image:repeating-linear-gradient(45deg,transparent 0 3px,var(--surface) 3px 4px)"></span>
+    <span>
+      <span class="sp-name"><i class="sp">Staphylococcus aureus</i></span>
+      <span class="sp-sub">CDC Category B &middot; present in all 5 swabs</span>
+    </span>
+    <span class="hide-s"><span class="cell-l">Sample</span><span class="cell-v mono">all 5</span></span>
+    <span class="hide-s"><span class="cell-l">Abundance</span><span class="cell-v mono">106 &ndash; 3,654 rd</span></span>
+    <span class="hide-s"><span class="cell-l">Escalating AMR classes</span>
+      <span class="classbar" style="margin-top:2px"><span class="cb na">?</span><span class="cb na">?</span><span class="cb na">?</span><span class="cb na">?</span></span></span>
+    <span class="hide-s"><span class="cell-l">Virulence</span><span class="cell-v mono">&mdash;</span></span>
+    <span class="hide-s">
+      <span class="vlabel" style="color:var(--muted)"><svg class="ic" viewBox="0 0 12 12"><use href="#i-untested"/></svg>NOT_TESTED</span>
+      <span class="cell-v mono" style="font-size:11px">marker gate</span>
+    </span>
+    <span class="tri">&#9654;</span>
+  </summary>
+  <div class="body">
+    <p class="q" style="max-width:88ch">The single most abundant CDC-listed organism in the batch &mdash; 3,654 reads in
+      WBM232 &mdash; and the honest answer is that the run could not resolve it. Its two-way confirmatory marker was
+      <b>not assessable at this coverage</b>, so gate 10a returned <span class="mono">NOT_TESTED</span> rather than
+      clearing it. That is a different statement from the 25 RNA agents, which were never testable at all.</p>
+    <div class="verdictline" style="margin-top:14px">
+      <span class="code unmet">&#9675; NA2</span>
+      <span>Confirmatory marker not assessable at this coverage &mdash; gate 10a, <span class="mono">marker_power()</span></span>
+    </div>
+    <p class="note"><b>Design consequence:</b> the current report files this under the same
+      <span class="mono">NOT_TESTED</span> heading as an RNA agent at 0 reads. Two very different findings, one label.
+      A high-read organism whose marker gate could not run belongs on the analyst&rsquo;s page;
+      an agent the assay cannot see belongs in the coverage band at the top.</p>
+  </div>
+</details>
+<div class="rest">
+  <span>Also here: <i class="sp">Escherichia coli</i> <b class="mono">62&ndash;118 rd</b> &middot;
+    <i class="sp">Clostridium perfringens</i> <b class="mono">84&ndash;248 rd</b> &mdash; same reason.</span>
+</div>
+</div>
+
+<div class="sechead">
+  <h2>Watchlist organisms detected, no action</h2>
+  <span class="hint">on the watchlist, below every escalation criterion</span>
+</div>
+
+<div class="band">
+<div class="rest">
+  <span><b>10</b> organisms &mdash;
+    <i class="sp">S. maltophilia</i> <b class="mono">2,090</b> &middot;
+    <i class="sp">E. faecalis</i> <b class="mono">1,079</b> &middot;
+    <i class="sp">K. aerogenes</i> <b class="mono">1,385</b> &middot;
+    <i class="sp">P. aeruginosa</i> <b class="mono">759</b> &middot;
+    <i class="sp">E. cloacae</i> <b class="mono">490</b> &middot;
+    <i class="sp">S. marcescens</i> <b class="mono">473</b> &middot;
+    <i class="sp">K. pneumoniae</i> <b class="mono">311</b> &middot;
+    <i class="sp">C. albicans</i> <b class="mono">89</b> &middot;
+    <i class="sp">E. hormaechei</i> <b class="mono">81</b> &middot;
+    <i class="sp">S. pneumoniae</i> <b class="mono">142</b>
+    <span style="color:var(--muted)">(peak reads across the 5 swabs)</span></span>
+  <a class="deep" style="margin-left:auto" href="#">Expand ranked &rarr;</a>
+</div>
+</div>
+
+<div class="sechead">
+  <h2>Background flora</h2>
+  <span class="hint">not on any list</span>
+</div>
+<div class="band"><div class="rest">
+  <span><b>304</b> taxon rows at MONITOR across the 5 swabs &mdash;
+    <b>59% of the current report&rsquo;s 53,006 words.</b></span>
+  <a class="deep" style="margin-left:auto" href="#">Show table &rarr;</a>
+</div></div>
+
+</div></main>
