@@ -418,6 +418,129 @@ def vf_html(t):
             f'listed in full on the evidence card below.</p></div>')
 
 
+# ---------------------------------------------------------------- visual summary
+#
+# Two figures, both part-to-whole, both with a table twin. They are CSS flex bars, not SVG:
+# a stacked bar needs no coordinate math, and flex keeps the segments honest when the font
+# or container changes.
+#
+# COLOUR IS NEVER THE ONLY ENCODING HERE, and that is a measurement rather than a
+# preference. Running the palette validator over the tier ladder:
+#
+#   [FAIL] Normal-vision floor  worst adjacent #AD6400 (CONFIRM) <-> #C02A2A (ESCALATE)
+#          dE 12.1 -- below the 15 floor, hard to tell apart even with full colour vision
+#
+# A search over every amber that keeps white label text at 4.5:1 and sits dE >= 15 from
+# this red returned ZERO candidates: the ladder is a deliberate warm severity gradient, and
+# separating its top two rungs by colour would cost the gradient its meaning. So the two
+# most consequential tiers are separated structurally instead - a 2px surface gap between
+# every segment, a direct count inside any segment wide enough to hold one, an icon and a
+# word in the legend, and a table twin carrying every value. Nothing is reachable by colour
+# or by hover alone.
+
+BAR_H = 24          # the mark-thickness cap and the pointer-target floor are the same number
+LABEL_MIN = 34      # a segment narrower than this cannot hold its count legibly
+
+
+def _seg(k, n, tot, wide):
+    """One segment of a tier bar. NOT_TESTED is hatched because it is not a severity."""
+    hatch = k == 'NOT_TESTED'
+    fill = (f'background:repeating-linear-gradient(45deg,#fff 0 4px,{C["grey"]} 4px 5px);'
+            f'border:1px solid {C["grey"]}' if hatch else f'background:{VERDICT[k][0]}')
+    ink = C['ink'] if hatch else '#fff'
+    txt = (f'<span class="tsl{" onhatch" if hatch else ""}">{n:,}</span>') if wide else ''
+    return (f'<span class="tseg" style="flex:{n};{fill};color:{ink}" '
+            f'title="{E(k.replace("_", " "))} &mdash; {n:,} of {tot:,}">{txt}</span>')
+
+
+def tier_bars(data):
+    """Taxon tiers per sample, bar width proportional to that sample's total taxon count.
+
+    Absolute widths, not percentages: WBM185 carries 134 rows and WBM179 carries 54, and a
+    row-normalised bar would draw those as the same length and invite the reader to compare
+    proportions that rest on very different denominators.
+    """
+    order = [v for v in ORDER if v != 'ESCALATE'] + ['NOT_TESTED']
+    order = ['ESCALATE'] + order
+    counts = [(d, {v: sum(1 for t in d['taxa'] if t['verdict'] == v) for v in order})
+              for d in data]
+    tots = {d['id']: sum(c.values()) for d, c in counts}
+    top = max(tots.values()) or 1
+
+    rows = ''
+    for d, c in counts:
+        tot = tots[d['id']]
+        # px estimate only decides whether a count fits inside its own segment
+        px = lambda n: (n / top) * 620
+        segs = ''.join(_seg(k, c[k], tot, px(c[k]) >= LABEL_MIN) for k in order if c[k])
+        rows += (f'<div class="tbar"><span class="tbl">{E(d["sample"])}</span>'
+                 f'<span class="ttrack" style="width:{tot / top:.1%}">{segs}</span>'
+                 f'<span class="ttot">{tot:,}</span></div>')
+
+    legend = ''.join(
+        f'<span class="tlg">{_swatch(k)}{icon(k)}{E(k.replace("_", " "))}</span>'
+        for k in order if any(c[k] for _, c in counts))
+
+    head = ''.join(f'<th class="num">{E(k.replace("_", " "))}</th>' for k in order)
+    body = ''.join(
+        f'<tr><td><b>{E(d["sample"])}</b></td>'
+        + ''.join(f'<td class="num">{c[k]:,}</td>' for k in order)
+        + f'<td class="num"><b>{tots[d["id"]]:,}</b></td></tr>' for d, c in counts)
+    tfoot = ''.join(f'<td class="num"><b>{sum(c[k] for _, c in counts):,}</b></td>'
+                    for k in order)
+
+    return (f'<div class="fig"><div class="fighd"><b>Taxon tiers per swab</b>'
+            f'<span class="tiny">Bar length is that swab\'s total taxon count, so the rows '
+            f'compare in absolute rows rather than percentages. Hatched = never assessed.</span>'
+            f'</div><div class="tbars">{rows}</div><div class="tlgs">{legend}</div>'
+            f'<details class="fold"><summary>Table view &mdash; taxon tiers per swab</summary>'
+            f'<table class="ev"><tr><th>Swab</th>{head}<th class="num">Total</th></tr>{body}'
+            f'<tr><td><b>Batch</b></td>{tfoot}'
+            f'<td class="num"><b>{sum(tots.values()):,}</b></td></tr></table></details></div>')
+
+
+def _swatch(k):
+    if k == 'NOT_TESTED':
+        return (f'<span class="tsw" style="background:repeating-linear-gradient(45deg,'
+                f'#fff 0 3px,{C["grey"]} 3px 4px);border:1px solid {C["grey"]}"></span>')
+    return f'<span class="tsw" style="background:{VERDICT[k][0]}"></span>'
+
+
+def coverage_fig(data):
+    """What the assay could and could not answer, before any chart of what it found.
+
+    Computed from threat_list's own `genome` field against the library that was run, NOT from
+    the taxon rows. The engine only emits a row for an agent it saw or explicitly screened, so
+    counting rows answers "how many agents appeared" and calls it coverage - which reported
+    5 of 30 for a batch whose real coverage is 21 of 46.
+
+    A report that renders "no CDC agent detected" as a clean result is lying by omission when
+    more than half the panel was never testable, so this sits above every other figure.
+    """
+    panel = {k: v for k, v in triage.RULES['threat_list'].items()
+             if not k.startswith('_') and isinstance(v, dict)}
+    if not panel:
+        return ''
+    rna = sum(1 for v in panel.values() if v.get('genome') == 'RNA')
+    # showRNA is per sample; an agent is assessable if ANY library in the batch could see it.
+    any_rna = any(d.get('showRNA') for d in data)
+    ok = len(panel) if any_rna else len(panel) - rna
+    gap = len(panel) - ok
+    pct = ok / len(panel)
+    tail = (f'&mdash; the other <b>{gap}</b> have RNA genomes and the library was DNA. '
+            f'<b>Not negative: never tested.</b>' if gap else
+            '&mdash; an RNA library was sequenced, so the whole panel was in scope.')
+    return (f'<div class="fig"><div class="fighd"><b>Assay coverage on this run</b>'
+            f'<span class="tiny">Which listed agents this library could answer at all, from '
+            f'each agent\'s genome type &mdash; not from what happened to be found.</span>'
+            f'</div><div class="covrow"><span class="covbar2">'
+            f'<span class="covok" style="flex:{ok}"></span>'
+            + (f'<span class="covgap" style="flex:{gap}"></span>' if gap else '') +
+            f'</span><span class="covtx"><b>{ok} of {len(panel)}</b> CDC-listed agents '
+            f'assessable ({pct:.0%}) {tail}</span></div></div>')
+
+
+
 def anchor(d, t):
     """Stable id for a taxon's evidence card, so a cover-sheet row can link straight to it."""
     key = t.get('taxid') or binomial(t['taxon']).replace(' ', '-')
@@ -535,7 +658,8 @@ def flagged_section(data):
             f'<div class="flmast"><h2>Flagged species</h2>'
             f'<span class="tiny">{len(data)} sample{"s" if len(data) != 1 else ""} &middot; '
             f'{tot:,} taxon rows &middot; {n_absent} agent{"s" if n_absent != 1 else ""} the assay '
-            f'could not see</span></div>{body}</div></section>')
+            f'could not see</span></div>'
+            f'{coverage_fig(data)}{tier_bars(data)}{body}</div></section>')
 
 
 def collect(samples, comparators=None):
@@ -1066,6 +1190,38 @@ a.deep{color:#00539B;display:inline-block;min-height:24px;line-height:24px}
   details.fl > summary{grid-template-columns:1fr 14px}
   details.fl > summary .fc{display:none}
 }
+
+/* -- visual summary: two part-to-whole figures, each with a table twin -------- */
+.fig{border:1px solid #dde3ea;border-radius:7px;background:#fff;padding:13px 15px 14px;
+  margin-bottom:14px}
+.fighd{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:11px}
+.fighd b{font-size:12.5px}
+.fighd .tiny{margin-left:auto;text-align:right;max-width:62ch}
+.tbar{display:flex;align-items:center;gap:10px;min-height:26px}
+.tbar + .tbar{margin-top:6px}
+.tbl{width:74px;flex:none;font-size:11.5px;text-align:right;color:#6D6D6D;
+  font-family:ui-monospace,Menlo,Consolas,monospace}
+.ttrack{display:flex;gap:2px;height:24px;min-width:2px}
+.tseg{display:flex;align-items:center;justify-content:center;min-width:3px;height:100%%;
+  border-radius:2px;font-size:11px;font-weight:600;overflow:hidden;
+  font-family:ui-monospace,Menlo,Consolas,monospace}
+.tsl{line-height:1}
+.tsl.onhatch{background:#fff;padding:1px 4px;border-radius:2px}
+.ttrack .tseg:first-child{border-radius:4px 2px 2px 4px}
+.ttrack .tseg:last-child{border-radius:2px 4px 4px 2px}
+.ttot{font-size:11.5px;color:#333;font-family:ui-monospace,Menlo,Consolas,monospace}
+.tlgs{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;padding-left:84px}
+.tlg{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#333;
+  min-height:24px}
+.tlg .ic{color:#6D6D6D}
+.tsw{width:11px;height:11px;border-radius:2px;flex:none;display:inline-block}
+.covrow{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.covbar2{display:flex;gap:2px;width:210px;height:24px;flex:none}
+.covok{background:#00539B;border-radius:4px 2px 2px 4px}
+.covgap{border:1px solid #6D6D6D;border-radius:2px 4px 4px 2px;
+  background:repeating-linear-gradient(45deg,#fff 0 4px,#6D6D6D 4px 5px)}
+.covtx{font-size:12.5px;color:#333;flex:1;min-width:280px}
+@media (max-width:900px){.tlgs{padding-left:0}.tbl{width:58px}}
 """ % C
 
 JS = """

@@ -9,6 +9,7 @@ A. baumannii when the deepest of them covered 48% and the shallowest covered 8.7
 the exact class of overclaim the rest of the pipeline is built to avoid, so it gets a test.
 """
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -46,6 +47,17 @@ def main():
         f'PS3 must name an escalating-class gene; said {lg["PS3"]["measured"]!r}'
     # A verdict is never recomputed here - the ledger reports whatever the cascade set.
     assert ab['verdict'] == 'CONFIRM'
+
+    # --- coverage is a property of the panel and the library, not of what was found ---
+    cov = R.coverage_fig(data)
+    assert '21 of 46 </b>' not in cov  # guard against a stray space breaking the check below
+    assert '<b>21 of 46</b>' in cov, \
+        f'coverage must read 21 of 46 (threat_list: 21 DNA, 25 RNA vs a DNA library); got: ' \
+        + re.sub(r'<[^>]+>', '', cov)[:160]
+    assert '46%' in cov or '(46%)' in cov, 'percentage must follow the count'
+    panel = {k: v for k, v in triage.RULES['threat_list'].items()
+             if not k.startswith('_') and isinstance(v, dict)}
+    assert len(panel) == 46 and sum(1 for v in panel.values() if v['genome'] == 'RNA') == 25
 
     # --- a single-sample run must name the criterion that actually fired ---------
     solo = R.collect(['WBM232_en.html'])[0]
@@ -93,7 +105,6 @@ def main():
 
     # The RNA panel is screened in every sample; the cover sheet must report distinct
     # agents, not rows, or a five-swab batch claims 125 unseen agents instead of 25.
-    import re
     head = R.flagged_section(data).split('</div>')[0]
     n = int(re.search(r'(\d+) agents the assay could not see', head).group(1))
     distinct = len({R.binomial(t['taxon']) for x in data for t in x['taxa']
