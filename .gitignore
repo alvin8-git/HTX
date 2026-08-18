@@ -32,7 +32,18 @@ analysis/WBM*.json
 # `export_rules.py`. The stool report additionally carries donor sample identifiers.
 # docs/reference_rules.md is the diffable equivalent of the workbook and IS tracked.
 analysis/triage_report*.html
+analysis/*_report.html
 analysis/triage_rules.xlsx
+
+# Swab metadata is HAND-MAINTAINED INPUT, not derived — it is the only record of where
+# each swab came from, so it must survive a fresh clone.
+!analysis/sample_metadata.tsv
+
+# The sample registry IS the durable state, not a derived table. It can only be rebuilt
+# while every PFI report is still on disk; once those are archived it is the sole record
+# of the baseline each report was judged against, so it is tracked. It carries taxon read
+# counts and no read data, no sequences and no donor identifiers.
+!analysis/sample_registry.json
 
 # Briefing decks and templates.
 *.pptx

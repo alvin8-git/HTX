@@ -1273,6 +1273,23 @@ if __name__ == '__main__':
         raise SystemExit(0)
     if '--selftest' in sys.argv:
         selftest()
+    elif '--per-sample' in sys.argv:
+        # One report per swab, each judged against a running registry of every swab analysed
+        # before it. NOT the same as `--html` with one argument: without a cohort, gate 8
+        # cannot test cross-sample enrichment, and on this batch that flips WBM156 from
+        # MONITOR to NO ACTION and inflates WBM232 from 84 taxon rows to 370. See
+        # analysis/sample_registry.py.
+        import triage_report
+        made = triage_report.build_per_sample(
+            [report_path(a) for a in (args or SAMPLES)],
+            outdir=os.path.abspath(_od) if _od else None)
+        for path, sid, verdict, n in made:
+            here = os.path.relpath(path, ROOT)
+            print(f'  {sid}: {verdict} - {n} comparator{"s" if n != 1 else ""} '
+                  f'-> {here if not here.startswith("..") else path}')
+        print(f'{len(made)} report(s); registry '
+              f'{os.path.relpath(triage_report.SR.REGISTRY, ROOT)}')
+
     elif '--html' in sys.argv:
         # With an explicit --outdir, emit the TSVs in the same run. A WDL task writes a shell
         # script and can just call this twice, but a CWL platform (MGI ZTRON's Custom Workflow)

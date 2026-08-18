@@ -1,0 +1,20 @@
+# Swab metadata. HAND-MAINTAINED - the pipeline reads this file and never writes it.
+#
+# site_id      stable key. Free text will not join across runs: "Changi T3 departure" and
+#              "T3 dep." are different strings and would split one site into two.
+# site_label   what a human reads on the report.
+# collected_at ISO date the swab was TAKEN, which is not the date it was sequenced.
+# run_id       sequencing run. Needed to tell a site effect from a batch effect.
+#
+# A blank cell means NOT CAPTURED and renders as such. Do not fill one in to make a column
+# look complete - a guessed site silently joins two swabs that were never in the same place.
+#
+# site_label values below are transcribed from 101_Documentation.md and README.md.
+# collected_at and run_id are blank because this project never recorded them; the five swabs
+# are known to have been sequenced in SEPARATE batches, but the run identifiers are lost.
+sample_id	site_id	site_label	collected_at	run_id
+WBM156	ferry-arrival-restroom-tap	Ferry terminal - arrival, restroom tap		
+WBM174	changi-t3-arrival-passport-scanner	Changi T3 - arrival, automated passport scanner		
+WBM179	changi-t3-departure-fingerprint	Changi T3 - departure, fingerprint reader		
+WBM185	changi-t3-departure-checkin-kiosk	Changi T3 - departure, check-in kiosk touchscreen		
+WBM232	changi-t4-departure-trolley-handles	Changi T4 - departure, trolley handles (rows 5-6)		

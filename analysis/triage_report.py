@@ -28,6 +28,7 @@ import html
 import json
 import os
 
+import sample_registry as SR
 import triage
 
 ROOT = triage.ROOT
@@ -662,14 +663,22 @@ def flagged_section(data):
             f'{coverage_fig(data)}{tier_bars(data)}{body}</div></section>')
 
 
-def collect(samples, comparators=None):
+def collect(samples, comparators=None, cohort=None):
+    """`cohort` is {taxon: {sample_id: load}} from the registry, merged into this run's loads.
+
+    Same shape and normalisation as triage.loads_by_taxon, so triage.enrichment cannot tell a
+    stored sample from one loaded off disk. That is what lets a single swab be judged against
+    every swab analysed before it instead of against nothing.
+    """
     reports = {s: triage.load_report(s) for s in samples}
     classified, integrity = {}, {}
     for s, g in reports.items():
         integrity[s], classified[s] = triage.gate_integrity(s, g)
     loads = triage.loads_by_taxon(reports, classified)
+    for taxon, per in (cohort or {}).items():
+        loads[taxon].update(per)
     if comparators is None:
-        comparators = len(samples) > 1
+        comparators = len(samples) > 1 or bool(cohort)
 
     out = []
     for s in samples:
@@ -1222,6 +1231,39 @@ a.deep{color:#00539B;display:inline-block;min-height:24px;line-height:24px}
   background:repeating-linear-gradient(45deg,#fff 0 4px,#6D6D6D 4px 5px)}
 .covtx{font-size:12.5px;color:#333;flex:1;min-width:280px}
 @media (max-width:900px){.tlgs{padding-left:0}.tbl{width:58px}}
+
+/* -- per-sample report: the verdict is the headline ------------------------- */
+.svhero{background:%(light)s;border-bottom:1px solid #dbe3ec;padding:20px 0 22px}
+.svwrap{max-width:1180px;margin:0 auto;padding:0 26px;display:grid;
+  grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:34px;align-items:start}
+.svmain{display:flex;gap:16px;align-items:flex-start}
+.svchip{color:#fff;font-weight:700;font-size:15px;letter-spacing:.06em;padding:9px 16px;
+  border-radius:6px;white-space:nowrap;flex:none}
+.svtext{font-size:12.5px;color:%(ink)s;line-height:1.6}
+.svtext ul{margin:7px 0 0;padding-left:17px}
+.svbreak{border-left:1px solid #dbe3ec;padding-left:26px}
+.svbh{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:%(grey)s;
+  margin-bottom:9px}
+.svbh b{color:%(ink)s}
+.svcells{display:flex;gap:6px}
+.svcell{flex:1;min-width:0;border:1px solid #dbe3ec;border-radius:5px;background:#fff;
+  padding:7px 9px 8px;border-top:3px solid var(--c)}
+.svcell.mine{background:#fff;border-color:var(--c);box-shadow:0 0 0 2px var(--c) inset}
+.svn{display:block;font-size:19px;font-weight:600;line-height:1;color:%(ink)s}
+.svl{display:block;font-size:9.5px;letter-spacing:.03em;color:%(grey)s;margin-top:4px}
+.svcell.mine .svl{color:%(ink)s;font-weight:600}
+.nc{color:%(grey)s;font-style:italic}
+header .nc{color:#B9CCE0}
+details.cohort{border:1px solid #dde3ea;border-radius:7px;background:#fbfcfd;margin:0 0 16px}
+details.cohort > summary{cursor:pointer;padding:10px 14px;font-size:12.5px;min-height:44px;
+  display:flex;align-items:center;gap:8px}
+details.cohort > summary:focus-visible{outline:2px solid %(blue)s;outline-offset:-2px}
+.cohortb{padding:0 14px 12px}
+.cfp{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:%(grey)s}
+.cid{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;color:%(ink)s}
+.cohort.none{padding:11px 14px;font-size:12.5px;color:%(ink)s}
+@media (max-width:900px){.svwrap{grid-template-columns:1fr;gap:20px}
+  .svbreak{border-left:0;padding-left:0;border-top:1px solid #dbe3ec;padding-top:16px}}
 """ % C
 
 JS = """
@@ -1236,6 +1278,183 @@ function showTab(s,t){pick('.panel[data-s="'+s+'"] .tabs button','t',t);
    before the browser tries to scroll, or the jump silently lands nowhere. */
 function openCard(s){showSample(s);showTab(s,'sp');}
 """
+
+
+# ---------------------------------------------------------------- per-sample report
+#
+# One file per swab, `<id>_report.html`, judged against a running registry of every sample
+# analysed before it. See analysis/sample_registry.py for why the cohort is load-bearing
+# rather than an optimisation.
+#
+# THE REPORT IS A SNAPSHOT. It records the cohort it was built against and a fingerprint of
+# that cohort, next to the rules fingerprint the report already carried. Adding a sample later
+# can change an older sample's verdict; nothing is rewritten behind your back, and the
+# fingerprint is how a stale report is spotted.
+
+SV_ORDER = ['ESCALATE', 'INVESTIGATE', 'MONITOR', 'NO ACTION']
+
+
+def _sv_col(v):
+    return {'ESCALATE': C['red'], 'INVESTIGATE': C['red'],
+            'MONITOR': C['amber'], 'NO ACTION': C['green']}.get(v, C['grey'])
+
+
+def site_line(sid, meta):
+    """Where and when the swab was taken. Absent fields say so; none of them is ever inferred."""
+    m = meta.get(sid, {})
+    bits = []
+    bits.append(f'<b>{E(m["site_label"])}</b>' if m.get('site_label')
+                else '<span class="nc">site not captured</span>')
+    bits.append(f'collected {E(m["collected_at"])}' if m.get('collected_at')
+                else '<span class="nc">collection date not captured</span>')
+    bits.append(f'run {E(m["run_id"])}' if m.get('run_id')
+                else '<span class="nc">run id not captured</span>')
+    return ' &middot; '.join(bits)
+
+
+def cohort_strip(reg, sid, this_verdict):
+    """Where this swab sits among every swab analysed so far.
+
+    The dashboard will carry this breakdown across the whole programme; each report carries it
+    so the reader can see whether one INVESTIGATE is the exception or the rule.
+    """
+    seen = {s: r.get('verdict') for s, r in reg['samples'].items()}
+    seen[sid] = this_verdict
+    counts = collections.Counter(seen.values())
+    tot = sum(counts.values())
+    cells = ''
+    for v in SV_ORDER:
+        n = counts.get(v, 0)
+        mine = ' mine' if v == this_verdict else ''
+        cells += (f'<span class="svcell{mine}" style="--c:{_sv_col(v)}">'
+                  f'<span class="svn">{n}</span>'
+                  f'<span class="svl">{E(v)}</span></span>')
+    return (f'<div class="svbreak"><div class="svbh">Sample verdicts across all '
+            f'<b>{tot}</b> analysed swab{"s" if tot != 1 else ""}'
+            f'<span class="tiny"> &mdash; this swab is the highlighted one</span></div>'
+            f'<div class="svcells">{cells}</div></div>')
+
+
+def cohort_block(reg, cids, cfp, meta):
+    """What this sample was compared against, named. An unnamed baseline is not auditable."""
+    if not cids:
+        return ('<div class="cohort none"><b>No comparator samples.</b> This is the first swab '
+                'in the registry, so gate 8 could not test cross-sample enrichment and fell back '
+                'to raw abundance. Every later swab will be compared against this one.</div>')
+    rows = ' &middot; '.join(
+        f'<span class="cid">{E(s)}</span>'
+        + (f' <span class="tiny">{E(meta[s]["site_label"])}</span>'
+           if meta.get(s, {}).get('site_label') else '')
+        for s in cids)
+    return (f'<details class="cohort"><summary><b>{len(cids)}</b> comparator sample'
+            f'{"s" if len(cids) != 1 else ""} &nbsp;<span class="cfp">cohort {E(cfp)}</span>'
+            f'</summary><div class="cohortb"><p class="tiny">Gate 8 measured this swab\'s '
+            f'enrichment against these. <b>The comparison set changes the verdict</b> &mdash; on '
+            f'this batch WBM156 is MONITOR against four siblings and NO ACTION against none, so a '
+            f'report is only as reproducible as the cohort it names. This report is a snapshot: '
+            f're-running it once more samples exist may reach a different answer, and the cohort '
+            f'fingerprint above is how you notice.</p><p class="tiny">{rows}</p>'
+            f'<p class="tiny"><b>These swabs were sequenced in separate batches</b>, so a raw '
+            f'cross-sample fold change confounds site with processing run. Cross-site enrichment '
+            f'claims that survive a batch-robust check are reported as such; those that do not are '
+            f'labelled as read-count alone. Recording <code>run_id</code> in '
+            f'<code>analysis/sample_metadata.tsv</code> is what makes that check possible.</p>'
+            f'</div></details>')
+
+
+def build_one(sample, reg, meta, fp, outdir=None):
+    """Render one swab's report against the registry, and return (path, data, cohort ids)."""
+    sid = triage.sample_id(sample)
+    cids = SR.cohort_ids(reg, sid)
+    cfp = SR.fingerprint(reg, cids)
+    d = collect([sample], comparators=bool(cids), cohort=SR.cohort_loads(reg, sid))[0]
+
+    cmd = f'python3 analysis/triage.py --per-sample {sid}'
+    stamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    sv, sv_why = d['verdict']
+    reasons = ''.join(f'<li>{E(r)}</li>' for r in sv_why[:5]) or '<li>Nothing above threshold.</li>'
+
+    tabs = [('qc', 'QC'), ('sp', 'Flaggable species'), ('amr', 'Resistance genes'),
+            ('me', 'Method &amp; verification')]
+    tb = ''.join(f'<button data-t="{t}" onclick="showTab(\'{E(sid)}\',\'{t}\')" '
+                 f'aria-selected="{str(j == 0).lower()}">{lbl}</button>'
+                 for j, (t, lbl) in enumerate(tabs))
+    body = {'qc': qc_tab(d), 'sp': species_tab(d), 'amr': amr_tab(d), 'me': method_tab(d, cmd, fp)}
+    tp = ''.join(f'<section class="tabp" data-t="{t}"{"" if j == 0 else " hidden"}>{body[t]}</section>'
+                 for j, (t, lbl) in enumerate(tabs))
+    counts = {v: sum(1 for t in d['taxa'] if t['verdict'] == v) for v in VERDICT}
+    head = ' &nbsp;·&nbsp; '.join(f'{chip(v)} {counts[v]}' for v in
+                                 ['ESCALATE', 'CONFIRM', 'MONITOR', 'NOT_TESTED'] if counts[v])
+
+    doc = f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{E(sid)} — triage evidence report</title>
+<style>{CSS}</style></head><body>
+<header><h1>{E(sid)}</h1>
+<div class="sub">{site_line(sid, meta)}</div>
+<div class="sub">Deterministic gate cascade over the PFI metagenomic report &nbsp;·&nbsp;
+analysed {E(stamp)} &nbsp;·&nbsp; rules {E(fp)} &nbsp;·&nbsp; cohort {E(cfp)}
+({len(cids)} comparator{"s" if len(cids) != 1 else ""})</div></header>
+<section class="svhero"><div class="svwrap">
+  <div class="svmain"><span class="svchip" style="background:{_sv_col(sv)}">{E(sv)}</span>
+    <div class="svtext"><b>What to do about this swab.</b> Rolled up from the rows below: a
+    threat-list agent with its marker present gives ESCALATE; a threat-list or watchlist organism
+    at CONFIRM, or a high-consequence acquired gene, gives INVESTIGATE.
+    <ul class="plain">{reasons}</ul></div></div>
+  {cohort_strip(reg, sid, sv)}
+</div></section>
+{flagged_section([d])}
+<div class="panel" data-s="{E(sid)}"><div class="tabs">{tb}</div><main>
+<p class="blurb">{d["classified"]:,} classified reads &nbsp;·&nbsp;
+{head or "no taxon above NO ACTION"}</p>
+{cohort_block(reg, cids, cfp, meta)}
+{tp}</main></div>
+<footer>Generated by <code>analysis/triage_report.py</code> from
+<code>{E(sid)}_en.html</code> only. Every figure is traceable to the PFI report or to a rule in
+<code>analysis/triage_rules.json</code>. Verdicts are tiers, never diagnoses: CONFIRM means
+culture with AST. Reproduce with <code>{E(cmd)}</code> &mdash; note that the cohort will differ
+if the registry has grown since {E(stamp)}.</footer>
+<script>{JS}</script></body></html>'''
+
+    out = os.path.join(outdir or os.path.join(ROOT, 'analysis'), f'{sid}_report.html')
+    with open(out, 'w', encoding='utf-8') as fh:
+        fh.write(doc)
+    return out, d, cids
+
+
+def build_per_sample(samples, outdir=None):
+    """Two passes, so a batch of new swabs judges each member against all the others.
+
+    Pass 1 ingests every requested sample's loads into the registry. Pass 2 renders each report
+    against the registry minus itself. Without the split, the first swab of a run would be
+    analysed against an empty baseline and the last against a full one - the same asymmetry the
+    registry exists to remove.
+    """
+    fp = hashlib.sha256(
+        open(os.path.join(ROOT, 'analysis', 'triage_rules.json'), 'rb').read() +
+        open(os.path.join(ROOT, 'analysis', 'triage.py'), 'rb').read()).hexdigest()[:12]
+    reg, meta = SR.load(), SR.metadata()
+
+    seen = {}
+    for s in samples:                                            # pass 1 - ingest
+        sid = triage.sample_id(s)
+        g = triage.load_report(s)
+        _, classified = triage.gate_integrity(s, g)
+        # cached: pass 2 needs the same counts, and a PFI report is ~7 MB to parse
+        seen[sid] = (classified, SR.loads_from_report(g))
+        prior = reg['samples'].get(sid, {})
+        SR.record(reg, sid, classified, seen[sid][1], prior.get('verdict'), fp,
+                  prior.get('cohort', []))
+    SR.save(reg)
+
+    out = []                                                     # pass 2 - render
+    for s in samples:
+        path, d, cids = build_one(s, reg, meta, fp, outdir)
+        sv = d['verdict'][0]
+        SR.record(reg, d['id'], seen[d['id']][0], seen[d['id']][1], sv, fp, cids)
+        out.append((path, d['id'], sv, len(cids)))
+    SR.save(reg)
+    return out
 
 
 def build(samples, out=OUT, comparators=None):

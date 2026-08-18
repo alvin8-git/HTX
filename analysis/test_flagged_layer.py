@@ -13,6 +13,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sample_registry as SR
 import triage
 import triage_report as R
 
@@ -111,8 +112,38 @@ def main():
                     if t['verdict'] == 'NOT_TESTED' and not t.get('real')})
     assert n == distinct == 25, f'cover sheet says {n}, distinct agents are {distinct}'
 
+    # --- per-sample report == cohort report ---------------------------------------
+    # The whole per-sample design rests on this: a report built from stored counts must reach
+    # the same answer as one built with every PFI report open at once. If it drifts, the
+    # registry is silently a different analysis wearing the same name.
+    reg = SR.load()
+    assert set(reg['samples']) >= set(SAMPLES), 'run: python3 analysis/triage.py --per-sample'
+    cids = SR.cohort_ids(reg, 'WBM232')
+    assert cids == ['WBM156', 'WBM174', 'WBM179', 'WBM185'], cids
+    assert 'WBM232' not in cids, 'a sample is never its own comparator'
+    solo_reg = R.collect([os.path.join(triage.ROOT, 'WBM232_en.html')],
+                         comparators=True, cohort=SR.cohort_loads(reg, 'WBM232'))[0]
+    assert solo_reg['verdict'][0] == d['verdict'][0] == 'INVESTIGATE', \
+        f"registry cohort gave {solo_reg['verdict'][0]}, batch gave {d['verdict'][0]}"
+    bt = {t['taxon']: t['verdict'] for t in d['taxa']}
+    pt = {t['taxon']: t['verdict'] for t in solo_reg['taxa']}
+    assert bt == pt, ('registry cohort disagrees with the batch on '
+                      f'{len([k for k in set(bt) | set(pt) if bt.get(k) != pt.get(k)])} rows')
+    # ...and it must beat the no-cohort case, or the registry buys nothing
+    assert len(solo_reg['taxa']) == 84 and len(solo['taxa']) == 370, \
+        f"cohort {len(solo_reg['taxa'])} rows vs none {len(solo['taxa'])} - the gap is the point"
+
+    # --- metadata is never guessed -------------------------------------------------
+    meta = SR.metadata()
+    assert meta['WBM232']['site_label'].startswith('Changi T4')
+    assert 'collected_at' not in meta['WBM232'], 'a blank cell must not become a value'
+    line = R.site_line('WBM232', meta)
+    assert 'collection date not captured' in line and 'run id not captured' in line
+    assert R.site_line('WBM999', meta).count('not captured') == 3, \
+        'an unknown sample states three gaps rather than rendering blanks'
+
     print(f'OK - {len(data)} samples, 1 flagged taxon, ledger {len(lg)} criteria, '
-          f'vf 0/{len(core)} above floor, {n} agents unseen')
+          f'vf 0/{len(core)} above floor, {n} agents unseen, registry {len(reg["samples"])}')
 
 
 if __name__ == '__main__':
