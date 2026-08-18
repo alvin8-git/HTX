@@ -1,0 +1,620 @@
+<title>Swab Triage Console</title>
+<style>
+:root{
+  color-scheme: light;
+  --plane:#f9f9f7; --surface:#fcfcfb; --surface-2:#f3f3f0;
+  --ink:#0b0b0b; --ink-2:#52514e; --muted:#6d6b66; --ghost:#6f6f68; --serious-tx:#a35a3e;
+  --grid:#e1e0d9; --axis:#c3c2b7; --hair:rgba(11,11,11,.10);
+  --accent:#2a78d6; --accent-soft:rgba(42,120,214,.10);
+  --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+  --untested:#898781;
+  --shadow:0 1px 2px rgba(11,11,11,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme: dark;
+    --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#232322;
+    --ink:#ffffff; --ink-2:#c3c2b7; --muted:#a3a199; --ghost:#8a8a88; --serious-tx:#ec835a;
+    --grid:#2c2c2a; --axis:#383835; --hair:rgba(255,255,255,.10);
+    --accent:#3987e5; --accent-soft:rgba(57,135,229,.14);
+    --shadow:none;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#232322;
+  --ink:#ffffff; --ink-2:#c3c2b7; --muted:#a3a199; --ghost:#8a8a88; --serious-tx:#ec835a;
+  --grid:#2c2c2a; --axis:#383835; --hair:rgba(255,255,255,.10);
+  --accent:#3987e5; --accent-soft:rgba(57,135,229,.14);
+  --shadow:none;
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--plane); color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+i,.sp{font-style:italic}
+.eyebrow{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600}
+h1,h2,h3{margin:0;text-wrap:balance;font-weight:600}
+h1{font-size:19px;letter-spacing:-.01em}
+h2{font-size:15px}
+h3{font-size:13px}
+p{margin:0}
+
+.wrap{max-width:1240px;margin:0 auto;padding:0 24px 64px}
+.card{background:var(--surface);border:1px solid var(--hair);border-radius:8px;box-shadow:var(--shadow)}
+.pad{padding:18px 20px}
+.stack{display:flex;flex-direction:column}
+.row{display:flex;align-items:center}
+.gap8{gap:8px}.gap12{gap:12px}.gap16{gap:16px}.gap24{gap:24px}
+.sep{height:1px;background:var(--hair);border:0;margin:0}
+
+/* ── masthead ─────────────────────────────────────────── */
+.mast{border-bottom:1px solid var(--hair);background:var(--surface);position:sticky;top:0;z-index:20}
+.mast .wrap{padding-top:14px;padding-bottom:0}
+.mast-top{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+.batchid{font-size:12px;color:var(--ink-2)}
+.provenance{margin-left:auto;display:flex;gap:18px;font-size:11px;color:var(--muted)}
+.provenance b{font-weight:600;color:var(--ink-2)}
+.filters{display:flex;gap:8px;flex-wrap:wrap;padding:12px 0 14px}
+.ctrl{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border:1px solid var(--hair);
+  border-radius:6px;background:var(--surface);color:var(--ink-2);font:inherit;font-size:12.5px;cursor:pointer;
+  transition:background .16s ease,border-color .16s ease}
+.ctrl:hover{background:var(--surface-2)}
+.ctrl:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ctrl[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+.ctrl svg{width:13px;height:13px;flex:none}
+
+/* ── coverage band ────────────────────────────────────── */
+.coverage{background:var(--surface-2);border-bottom:1px solid var(--hair)}
+.coverage .wrap{padding-top:18px;padding-bottom:20px}
+.cov-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px}
+.cov-head{display:flex;align-items:baseline;gap:10px;margin-bottom:9px}
+.cov-frac{font-size:22px;font-weight:600;letter-spacing:-.02em}
+.cov-of{font-size:12px;color:var(--muted)}
+.cov-note{font-size:12px;color:var(--ink-2);margin-top:8px;max-width:56ch}
+.covbar{width:100%;height:24px;padding:5px 0;border-radius:3px;display:flex;gap:2px;background:transparent}
+.covbar span{display:block;height:100%}
+.covbar .fill{background:var(--accent);border-radius:3px 0 0 3px}
+.covbar .hole{background:var(--surface);border:1px solid var(--muted);border-left:0;border-radius:0 3px 3px 0;
+  background-image:repeating-linear-gradient(45deg,transparent 0 4px,var(--muted) 4px 5px)}
+.covbar.full .fill{border-radius:3px}
+
+/* ── layout ───────────────────────────────────────────── */
+.section{padding-top:30px}
+.sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:12px}
+.sec-head .why{font-size:12px;color:var(--muted);margin-left:auto;text-align:right;max-width:46ch}
+.split{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:20px;align-items:start}
+
+/* ── queue ────────────────────────────────────────────── */
+.hero{font-size:44px;line-height:1;font-weight:600;letter-spacing:-.03em}
+.hero-line{display:flex;align-items:baseline;gap:12px;padding:2px 0 16px}
+.hero-line p{font-size:13px;color:var(--ink-2);max-width:24ch}
+.qcard{border:1px solid var(--hair);border-radius:8px;background:var(--surface);overflow:hidden;
+  display:grid;grid-template-columns:4px minmax(0,1fr)}
+.qcard + .qcard{margin-top:10px}
+.qstripe{width:4px;height:100%}
+.qbody{padding:13px 16px 14px}
+.qtop{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.qid{font-size:14px;font-weight:600;letter-spacing:.01em}
+.qsite{font-size:12px;color:var(--ink-2)}
+.qmeta{margin-left:auto;font-size:11.5px;color:var(--muted)}
+.qreason{margin-top:9px;font-size:12.5px;color:var(--ink-2);line-height:1.55;
+  border-left:2px solid var(--grid);padding-left:11px}
+.qreason em{font-style:italic}
+.qtags{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.tag{font-size:11px;padding:2px 7px;border-radius:4px;background:var(--surface-2);color:var(--ink-2);
+  border:1px solid var(--hair)}
+.tag.mono{font-size:10.5px}
+
+/* ── chips ────────────────────────────────────────────── */
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;
+  letter-spacing:.04em;text-transform:uppercase;padding:3px 8px 3px 6px;border-radius:5px;
+  border:1px solid var(--hair);background:var(--surface-2);color:var(--ink)}
+.chip svg{width:12px;height:12px;flex:none}
+.chip .dot{width:8px;height:8px;border-radius:2px;flex:none}
+
+/* ── stat tiles ───────────────────────────────────────── */
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{border:1px solid var(--hair);border-radius:8px;background:var(--surface);padding:13px 14px}
+.tile .lab{font-size:11.5px;color:var(--muted);line-height:1.35;min-height:2.7em}
+.tile .val{font-size:26px;font-weight:600;letter-spacing:-.02em;margin-top:4px}
+.tile .sub{font-size:11px;color:var(--ink-2);margin-top:2px}
+.tile.flag{border-color:var(--serious)}
+.tile.flag .val{color:var(--ink)}
+
+/* ── charts ───────────────────────────────────────────── */
+.chartcard{border:1px solid var(--hair);border-radius:8px;background:var(--surface);padding:16px 18px 14px}
+.chartcard + .chartcard{margin-top:10px}
+.ctitle{font-size:13px;font-weight:600}
+.csub{font-size:11.5px;color:var(--muted);margin-top:2px;line-height:1.45}
+.donutwrap{display:flex;align-items:center;gap:6px;margin-top:8px}
+.legend{display:flex;flex-direction:column;gap:6px;font-size:12px;min-width:0}
+.lg{display:flex;align-items:center;gap:7px;color:var(--ink-2);white-space:nowrap}
+.lg .dot{width:9px;height:9px;border-radius:2px;flex:none}
+.lg b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.lg svg{width:11px;height:11px;flex:none;color:var(--muted)}
+svg .lbl{font-size:11px;fill:var(--ink-2)}
+svg .lbl-strong{font-size:11px;fill:var(--ink);font-weight:600}
+svg .axis-t{font-size:11px;fill:var(--muted)}
+svg .lead{stroke:var(--axis);stroke-width:1;fill:none}
+
+/* ── site grid ────────────────────────────────────────── */
+.gridscroll{overflow-x:auto}
+table.sites{border-collapse:separate;border-spacing:0;width:100%;min-width:920px;font-size:12.5px}
+table.sites th{text-align:left;font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);padding:0 10px 9px;vertical-align:bottom}
+table.sites th.run{text-align:center;width:110px}
+table.sites th.ghost{color:var(--ghost)}
+table.sites td{padding:5px 10px;border-top:1px solid var(--grid)}
+table.sites td.cellwrap{text-align:center}
+.cell{display:inline-flex;align-items:center;justify-content:center;gap:5px;width:98px;height:30px;
+  border-radius:5px;font-size:10px;font-weight:600;letter-spacing:.02em;color:#fff;cursor:default;
+  white-space:nowrap}
+.cell svg{width:12px;height:12px;flex:none}
+.cell.empty{background:transparent;border:1px dashed var(--axis);color:var(--ghost);font-weight:400;
+  letter-spacing:0;text-transform:none;font-size:11px}
+.sitename{color:var(--ink);font-weight:500}
+.sitesub{color:var(--muted);font-size:11.5px}
+
+/* ── table view ───────────────────────────────────────── */
+details.tv{margin-top:10px;border:1px solid var(--hair);border-radius:8px;background:var(--surface);overflow:hidden}
+details.tv summary{cursor:pointer;padding:11px 16px;font-size:12.5px;font-weight:600;color:var(--ink-2);
+  list-style:none;display:flex;align-items:center;gap:8px}
+details.tv summary::-webkit-details-marker{display:none}
+details.tv summary:hover{background:var(--surface-2)}
+details.tv summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+details.tv summary svg{width:13px;height:13px;transition:transform .18s ease}
+details.tv[open] summary svg{transform:rotate(90deg)}
+.tvbody{border-top:1px solid var(--hair);overflow-x:auto}
+table.data{border-collapse:collapse;width:100%;min-width:640px;font-size:12.5px}
+table.data th{text-align:left;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);
+  font-weight:600;padding:9px 14px;border-bottom:1px solid var(--hair);white-space:nowrap}
+table.data td{padding:7px 14px;border-bottom:1px solid var(--grid);color:var(--ink-2);vertical-align:top}
+table.data td.num{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+table.data tr:last-child td{border-bottom:0}
+table.data tbody tr:hover{background:var(--surface-2)}
+
+/* ── tooltip ──────────────────────────────────────────── */
+#tip{position:fixed;pointer-events:none;opacity:0;transform:translateY(3px);z-index:60;
+  background:var(--ink);color:var(--plane);border-radius:6px;padding:7px 10px;font-size:12px;line-height:1.45;
+  max-width:280px;transition:opacity .12s ease,transform .12s ease}
+#tip.on{opacity:1;transform:translateY(0)}
+#tip b{font-weight:600}
+[data-tip]{cursor:default}
+[data-tip]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ── notes ────────────────────────────────────────────── */
+.notes{margin-top:36px;border-top:1px solid var(--hair);padding-top:22px}
+.notes h2{margin-bottom:4px}
+.notes .sub{font-size:12px;color:var(--muted);margin-bottom:16px}
+.notegrid{display:grid;grid-template-columns:1fr 1fr;gap:14px 28px}
+.note{font-size:12.5px;color:var(--ink-2);line-height:1.6}
+.note b{color:var(--ink);font-weight:600;display:block;margin-bottom:2px;font-size:12.5px}
+.note code{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;background:var(--surface-2);
+  padding:1px 4px;border-radius:3px}
+
+@media (max-width:980px){
+  .split{grid-template-columns:1fr}
+  .cov-grid{grid-template-columns:1fr;gap:20px}
+  .notegrid{grid-template-columns:1fr}
+  .provenance{margin-left:0;width:100%;padding-bottom:4px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-good" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-serious" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6M11 8v3.5M11 14.5h.01"/></symbol>
+    <symbol id="i-critical" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 2.5h8.2l5.4 5.4v8.2l-5.4 5.4H7.9L2.5 16.1V7.9Z"/><path d="M12 8v4.5M12 16h.01"/></symbol>
+    <symbol id="i-untested" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18l-7 8v6l-4 2v-8Z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></symbol>
+    <pattern id="hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+      <rect width="7" height="7" fill="var(--surface)"/>
+      <line x1="0" y1="0" x2="0" y2="7" stroke="var(--muted)" stroke-width="1.6"/>
+    </pattern>
+  </defs>
+</svg>
+
+<header class="mast">
+  <div class="wrap">
+    <div class="mast-top">
+      <h1>Swab Triage Console</h1>
+      <span class="batchid mono">HTX-2026-08 · 5 swabs · Singapore transport hubs</span>
+      <div class="provenance">
+        <span>Platform <b class="mono">Illumina 150 bp PE</b></span>
+        <span>PFI <b class="mono">v5.1.2 / DB v5.1.1</b></span>
+        <span>Rules <b class="mono">triage_rules 4f2a91c</b></span>
+      </div>
+    </div>
+    <div class="filters" role="group" aria-label="Filters">
+      <button class="ctrl" aria-pressed="true"><svg><use href="#i-filter"/></svg>All 5 swabs</button>
+      <button class="ctrl" aria-pressed="false">Needs analyst (2)</button>
+      <button class="ctrl" aria-pressed="false">CDC / WHO listed only</button>
+      <button class="ctrl" aria-pressed="false">Hide NOT TESTED</button>
+      <button class="ctrl" aria-pressed="false"><svg><use href="#i-clock"/></svg>This run</button>
+    </div>
+  </div>
+</header>
+
+<!-- ══ COVERAGE — the qualifier that governs everything below ══ -->
+<section class="coverage" aria-labelledby="cov-h">
+  <div class="wrap">
+    <p class="eyebrow" id="cov-h" style="margin-bottom:12px">Assay coverage on this run — what the batch could and could not answer</p>
+    <div class="cov-grid">
+      <div>
+        <div class="cov-head">
+          <span class="cov-frac mono">21 / 46</span>
+          <span class="cov-of">CDC Category A/B/C agents assessable</span>
+        </div>
+        <div class="covbar" data-tip="21 DNA-genome agents assessed and cleared at a named gate. 25 RNA-genome agents were never examined — gate 2 returns NOT_TESTED, not NO_ACTION.">
+          <span class="fill" style="width:45.7%"></span><span class="hole" style="width:54.3%"></span>
+        </div>
+        <p class="cov-note"><b>25 agents were not tested.</b> They have RNA genomes and this run sequenced
+        a DNA library only. The engine records these as <span class="mono">NOT_TESTED</span> — deliberately
+        outside the verdict ladder, so they can never be counted as a clean result.</p>
+      </div>
+      <div>
+        <div class="cov-head">
+          <span class="cov-frac mono">24 / 24</span>
+          <span class="cov-of">WHO BPPL / ESKAPE watchlist assessable</span>
+        </div>
+        <div class="covbar full" data-tip="All 24 watchlist organisms are bacterial, so a DNA library covers the whole list.">
+          <span class="fill" style="width:100%"></span>
+        </div>
+        <p class="cov-note">The watchlist is entirely bacterial, so a DNA library covers it completely.
+        Every finding on this page that reached a tier above <span class="mono">MONITOR</span> came from
+        this list, not from the CDC panel.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<main class="wrap">
+
+  <!-- ══ QUEUE + SUMMARY ══ -->
+  <section class="section split" aria-labelledby="q-h">
+    <div>
+      <div class="sec-head">
+        <h2 id="q-h">Triage queue</h2>
+        <span class="why">Sorted worst-first. Each card carries the engine's own reason string verbatim — the analyst reads the evidence, not a score.</span>
+      </div>
+      <div class="hero-line">
+        <span class="hero">2</span>
+        <p>of 5 swabs need an analyst today. Neither is a threat-agent detection.</p>
+      </div>
+      <div id="queue"></div>
+    </div>
+
+    <div style="padding-top:34px">
+      <div class="tiles" style="margin-bottom:10px">
+        <div class="tile">
+          <div class="lab">Swabs analysed<br>this batch</div>
+          <div class="val mono">5</div>
+          <div class="sub">10.8 M classified reads</div>
+        </div>
+        <div class="tile">
+          <div class="lab">Taxon rows at CONFIRM or above</div>
+          <div class="val mono">1</div>
+          <div class="sub">of 444 · <i>A. baumannii</i></div>
+        </div>
+        <div class="tile flag">
+          <div class="lab">Acquired resistance genes at CONFIRM</div>
+          <div class="val mono">31</div>
+          <div class="sub">of 218 · host unattributed</div>
+        </div>
+        <div class="tile flag">
+          <div class="lab">CDC agents with no result</div>
+          <div class="val mono">25</div>
+          <div class="sub">RNA library not run</div>
+        </div>
+      </div>
+
+      <div class="chartcard">
+        <div class="ctitle">Sample verdicts</div>
+        <div class="csub">One verdict per swab. 5 swabs.</div>
+        <div class="donutwrap">
+          <svg id="d1" width="176" height="150" viewBox="-26 0 176 150" role="img" aria-label="Sample verdicts: 2 NO ACTION, 1 MONITOR, 2 INVESTIGATE, 0 ESCALATE."></svg>
+          <div class="legend" id="l1"></div>
+        </div>
+      </div>
+
+      <div class="chartcard">
+        <div class="ctitle">Species by tier</div>
+        <div class="csub">444 taxon rows across the batch. The one CONFIRM is 0.2% — labelled, because a slice that small is otherwise invisible.</div>
+        <div class="donutwrap">
+          <svg id="d2" width="176" height="150" viewBox="-26 0 176 150" role="img" aria-label="Species tiers across 444 rows: 304 MONITOR, 136 NOT TESTED, 3 NO ACTION, 1 CONFIRM, 0 ESCALATE."></svg>
+          <div class="legend" id="l2"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ PER-SAMPLE DISTRIBUTION ══ -->
+  <section class="section" aria-labelledby="ps-h">
+    <div class="sec-head">
+      <h2 id="ps-h">Where the tiers sit, swab by swab</h2>
+      <span class="why">The donut says how much; this says where. Hatched segments are agents that were never assessed.</span>
+    </div>
+    <div class="chartcard">
+      <div class="ctitle">Taxon tiers per swab</div>
+      <div class="csub">Row width is that swab's total taxon count, so the bars are comparable in absolute rows, not percentages.</div>
+      <svg id="sb" width="100%" height="196" role="img" aria-label="Stacked taxon tiers per swab. Full values in the table view below."></svg>
+      <div class="legend" id="lsb" style="flex-direction:row;flex-wrap:wrap;gap:14px;margin-top:6px"></div>
+    </div>
+    <details class="tv">
+      <summary><svg><use href="#i-chev"/></svg>Table view — taxon tiers per swab</summary>
+      <div class="tvbody"><table class="data" id="tbl-sb"></table></div>
+    </details>
+  </section>
+
+  <!-- ══ SITE × RUN ══ -->
+  <section class="section" aria-labelledby="site-h">
+    <div class="sec-head">
+      <h2 id="site-h">Site &times; run</h2>
+      <span class="why">Location and longitudinal tracking are the same component. Today it has one column; every future run adds one more, with no redesign.</span>
+    </div>
+    <div class="chartcard">
+      <div class="ctitle">Worst verdict recorded at each swab site, by run</div>
+      <div class="csub">Cells carry an icon as well as a colour — <span class="mono">MONITOR</span> and <span class="mono">INVESTIGATE</span> are adjacent on the ladder and measure below the colour-separation floor, so colour alone is never the signal.</div>
+      <div class="gridscroll" style="margin-top:12px">
+        <table class="sites" id="sitegrid"></table>
+      </div>
+      <p class="csub" style="margin-top:14px;max-width:78ch">
+        <b style="color:var(--serious-tx)">Read this column-wise, not row-wise, until batching is fixed.</b>
+        These five swabs were sequenced in <b>separate batches</b>, so a raw cross-swab fold change confounds
+        site with processing run. Cross-site enrichment claims on this page survive a batch-robust check;
+        anything that does not is reported on read count alone and labelled as such.
+      </p>
+    </div>
+  </section>
+
+  <!-- ══ DESIGNER'S NOTES ══ -->
+  <section class="notes" aria-labelledby="n-h">
+    <h2 id="n-h">Design notes</h2>
+    <p class="sub">Why the console is shaped this way, and what it still needs from upstream.</p>
+    <div class="notegrid">
+      <div class="note"><b>NOT TESTED is never a status colour</b>
+        It gets the neutral hatch instead. The four status hues mean good / warning / serious / critical;
+        an unexamined agent is none of those. This is the single rule that stops the dashboard from
+        turning a coverage gap into a clean bill of health.</div>
+      <div class="note"><b>Two ladders, never merged</b>
+        A swab gets <code>NO ACTION → MONITOR → INVESTIGATE → ESCALATE</code>. A taxon row gets
+        <code>NO_ACTION → MONITOR → CONFIRM → ESCALATE</code>. They share colours because they share
+        severity, but the legends name which ladder is in play.</div>
+      <div class="note"><b>"Number of swabs" is a stat tile, not a pie</b>
+        A single total has nothing to divide, so a pie of it would be one full circle. The two pies that
+        survive are the ones with real parts: sample verdicts (4 classes) and species tiers (5 classes,
+        with the 0.2% CONFIRM pulled out and labelled so it cannot vanish).</div>
+      <div class="note"><b>Site location is not yet captured</b>
+        Site names here come from the run notes, keyed by hand. To make the grid real, the sample sheet
+        needs a stable <code>site_id</code> plus <code>collected_at</code>, carried through the PFI report
+        filename — that filename is already the engine's only provenance key.</div>
+      <div class="note"><b>Every chart has a table twin</b>
+        Nothing is reachable by hover alone. Tooltips add convenience; the table carries the values, so
+        the page holds up under a screen reader, in print, and in a PDF pasted into a report.</div>
+      <div class="note"><b>Explainability is the reason string, not a score</b>
+        The queue shows what the engine wrote, unedited, including its own hedges — "CO-LOCATION, NOT
+        CO-ATTRIBUTION". A confidence percentage would be easier to render and much harder to defend.</div>
+    </div>
+  </section>
+</main>
+
+<div id="tip" role="status" aria-live="polite"></div>
+
+<script>
+// Two ladders share the severity colours but NOT their vocabulary — a swab is
+// "NO ACTION"/INVESTIGATE, a taxon row is "NO_ACTION"/CONFIRM. Both spellings are
+// keyed here so a label is never silently rendered from the wrong ladder.
+const S = {
+  'NO ACTION':{c:'var(--good)',   i:'i-good',     n:'NO ACTION'},    // sample
+  NO_ACTION:{c:'var(--good)',     i:'i-good',     n:'NO_ACTION'},    // taxon
+  MONITOR:  {c:'var(--warning)',  i:'i-warn',     n:'MONITOR'},      // both
+  INVESTIGATE:{c:'var(--serious)',i:'i-serious',  n:'INVESTIGATE'},  // sample
+  CONFIRM:  {c:'var(--serious)',  i:'i-serious',  n:'CONFIRM'},      // taxon
+  ESCALATE: {c:'var(--critical)', i:'i-critical', n:'ESCALATE'},     // both
+  NOT_TESTED:{c:'url(#hatch)',    i:'i-untested', n:'NOT_TESTED', flat:'var(--untested)'}
+};
+
+// Real batch data — analysis/triage_WBM*.tsv
+const SAMPLES = [
+  {id:'WBM185', site:'Changi T3 — departure', spot:'Check-in kiosk touchscreen', v:'INVESTIGATE',
+   reads:'2,006,566', raw:'22.0 M', host:'6.3%',
+   tiers:{CONFIRM:0,MONITOR:106,NO_ACTION:0,NOT_TESTED:28},
+   amr:{CONFIRM:10,MONITOR:14,NO_ACTION:28},
+   reason:'MECA (MEG_3778) at 90.9% / 10.51x — high-consequence acquired resistance. MUPA (MEG_4089) at 90.2% / 11.70x. CTX (MEG_2430) at 82.9% / 7.25x.',
+   tags:['3 acquired genes at CONFIRM','no host attribution','no listed organism enriched']},
+  {id:'WBM232', site:'Changi T4 — departure', spot:'Trolley handles, rows 5–6', v:'INVESTIGATE',
+   reads:'2,590,665', raw:'32.8 M', host:'22.3%',
+   tiers:{CONFIRM:1,MONITOR:55,NO_ACTION:1,NOT_TESTED:27},
+   amr:{CONFIRM:5,MONITOR:7,NO_ACTION:35},
+   reason:'Acinetobacter baumannii: acquired Aminoglycosides resistance in the same sample (ANT3-DPRIME MEG_899, 72.6% / 20.94x) and this genus is a documented host — CO-LOCATION, NOT CO-ATTRIBUTION. CTX (MEG_2378) at 60.6% / 11.69x.',
+   tags:['1 taxon at CONFIRM','6.0× enriched vs other swabs','WHO priority pathogen']},
+  {id:'WBM156', site:'Ferry terminal — arrival', spot:'Restroom tap', v:'MONITOR',
+   reads:'622,642', raw:'45.2 M', host:'91.3%',
+   tiers:{CONFIRM:0,MONITOR:63,NO_ACTION:0,NOT_TESTED:26},
+   amr:{CONFIRM:1,MONITOR:4,NO_ACTION:19},
+   reason:'Providencia rettgeri: detected only in this sample.',
+   tags:['site-unique taxon','91% host — lowest yield in batch']},
+  {id:'WBM174', site:'Changi T3 — arrival', spot:'Automated passport scanner', v:'NO ACTION',
+   reads:'2,465,508', raw:'26.1 M', host:'18.8%',
+   tiers:{CONFIRM:0,MONITOR:54,NO_ACTION:1,NOT_TESTED:28},
+   amr:{CONFIRM:11,MONITOR:9,NO_ACTION:28},
+   reason:'No listed organism is site-enriched and no acquired resistance gene reached CONFIRM. 11 WHO/CDC-listed organisms are present at batch-background levels — expected on a public surface, and not a finding.',
+   tags:['11 listed organisms at background']},
+  {id:'WBM179', site:'Changi T3 — departure', spot:'Fingerprint reader', v:'NO ACTION',
+   reads:'3,110,882', raw:'53.2 M', host:'77.2%',
+   tiers:{CONFIRM:0,MONITOR:26,NO_ACTION:1,NOT_TESTED:27},
+   amr:{CONFIRM:4,MONITOR:11,NO_ACTION:32},
+   reason:'No listed organism is site-enriched and no acquired resistance gene reached CONFIRM. 9 WHO/CDC-listed organisms are present at batch-background levels — expected on a public surface, and not a finding.',
+   tags:['9 listed organisms at background']}
+];
+
+const icon = (id, cls='') => `<svg class="${cls}" aria-hidden="true"><use href="#${id}"/></svg>`;
+// The legend swatch must carry the same fill as the mark — NOT_TESTED is hatched
+// in the chart, so a solid grey chip here would quietly restate it as a colour.
+const HATCH = 'repeating-linear-gradient(45deg,var(--surface) 0 3px,var(--muted) 3px 4px)';
+const swatch = (k, present=1) => !present
+  ? `<span class="dot" style="background:transparent;border:1px dashed var(--axis)"></span>`
+  : k === 'NOT_TESTED'
+    ? `<span class="dot" style="background:${HATCH};border:1px solid var(--muted)"></span>`
+    : `<span class="dot" style="background:${S[k].c}"></span>`;
+const chip = v => `<span class="chip" style="color:${S[v].flat||S[v].c}">${icon(S[v].i)}<span style="color:var(--ink)">${S[v].n}</span></span>`;
+
+/* ── tooltip ── */
+const tip = document.getElementById('tip');
+const show = (e, html) => {
+  tip.innerHTML = html; tip.classList.add('on');
+  const r = e.currentTarget.getBoundingClientRect();
+  const x = Math.min(Math.max(8, r.left + r.width/2 - tip.offsetWidth/2), innerWidth - tip.offsetWidth - 8);
+  tip.style.left = x+'px';
+  tip.style.top = (r.top > tip.offsetHeight + 14 ? r.top - tip.offsetHeight - 8 : r.bottom + 8)+'px';
+};
+const hide = () => tip.classList.remove('on');
+function bind(el, html){
+  el.setAttribute('tabindex','0');
+  el.addEventListener('mouseenter', e => show(e, html));
+  el.addEventListener('focus', e => show(e, html));
+  el.addEventListener('mouseleave', hide);
+  el.addEventListener('blur', hide);
+}
+document.querySelectorAll('[data-tip]').forEach(el => bind(el, el.dataset.tip));
+
+/* ── queue ── */
+document.getElementById('queue').innerHTML = SAMPLES.map(s => `
+  <article class="qcard">
+    <div class="qstripe" style="background:${S[s.v].flat||S[s.v].c}"></div>
+    <div class="qbody">
+      <div class="qtop">
+        <span class="qid mono">${s.id}</span>
+        ${chip(s.v)}
+        <span class="qsite">${s.site} · ${s.spot}</span>
+        <span class="qmeta mono">${s.reads} classified · ${s.host} host</span>
+      </div>
+      <p class="qreason">${s.reason.replace(/(Acinetobacter baumannii|Providencia rettgeri)/g,'<em>$1</em>')}</p>
+      <div class="qtags">${s.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</div>
+    </div>
+  </article>`).join('');
+
+/* ── donut ── */
+function donut(svgId, legId, data, ladder){
+  const svg = document.getElementById(svgId), leg = document.getElementById(legId);
+  const live = data.filter(d => d.v > 0);
+  const total = live.reduce((a,d)=>a+d.v,0);
+  const cx=75, cy=75, r=52, w=24;
+  let a0 = -Math.PI/2, out = '', small = 0;
+  live.forEach(d => {
+    const frac = d.v/total, a1 = a0 + frac*Math.PI*2, mid = (a0+a1)/2;
+    const p = (ang,rad) => [cx+Math.cos(ang)*rad, cy+Math.sin(ang)*rad];
+    const [x1,y1]=p(a0,r), [x2,y2]=p(a1,r), [x3,y3]=p(a1,r-w), [x4,y4]=p(a0,r-w);
+    const big = frac > .5 ? 1 : 0;
+    out += `<path d="M${x1} ${y1}A${r} ${r} 0 ${big} 1 ${x2} ${y2}L${x3} ${y3}A${r-w} ${r-w} 0 ${big} 0 ${x4} ${y4}Z"
+      fill="${S[d.k].c}" stroke="var(--surface)" stroke-width="2"
+      data-t="<b>${S[d.k].n}</b> — ${d.v.toLocaleString()} ${d.unit} (${(frac*100).toFixed(frac<0.01?2:1)}%)"/>`;
+    // Direct-label any slice too small to see. Sub-1% slices sit almost on top of
+    // one another, so park each on its own line in the left margin rather than
+    // stacking labels at the arc and detaching them from their leaders.
+    if (frac < .03){
+      const [lx,ly] = p(mid, r+2);
+      const ty = 22 + small*16;
+      out += `<path class="lead" d="M${lx} ${ly}L${-8} ${ty}"/>
+        <text class="lbl-strong" x="${-12}" y="${ty+3.5}" text-anchor="end"
+          font-family="ui-monospace,Menlo,monospace">${d.v}</text>`;
+      small++;
+    }
+    a0 = a1;
+  });
+  out += `<text x="${cx}" y="${cy-2}" text-anchor="middle" class="lbl-strong" style="font-size:18px">${total.toLocaleString()}</text>
+          <text x="${cx}" y="${cy+13}" text-anchor="middle" class="lbl" style="font-size:10px">${live[0].unit}</text>`;
+  svg.innerHTML = out;
+  svg.querySelectorAll('path[data-t]').forEach(a => {
+    const b = a.getBBox();
+    if (b.width < 24 || b.height < 24) a.removeAttribute('data-t'); });
+  svg.querySelectorAll('path[data-t]').forEach(p => bind(p, p.dataset.t));
+
+  leg.innerHTML = `<div class="lg" style="color:var(--muted);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:600">${ladder}</div>` +
+    data.map(d => `<div class="lg">${swatch(d.k, d.v)}
+      ${icon(S[d.k].i)}<span>${S[d.k].n}</span><b>${d.v}</b></div>`).join('');
+}
+
+donut('d1','l1',[
+  {k:'NO ACTION',v:2,unit:'swabs'},{k:'MONITOR',v:1,unit:'swabs'},
+  {k:'INVESTIGATE',v:2,unit:'swabs'},{k:'ESCALATE',v:0,unit:'swabs'}
+],'Sample verdict');
+
+donut('d2','l2',[
+  {k:'MONITOR',v:304,unit:'taxon rows'},{k:'NOT_TESTED',v:136,unit:'taxon rows'},
+  {k:'NO_ACTION',v:3,unit:'taxon rows'},{k:'CONFIRM',v:1,unit:'taxon rows'},
+  {k:'ESCALATE',v:0,unit:'taxon rows'}
+],'Taxon tier');
+
+/* ── stacked bars ── */
+(function(){
+  const order = ['CONFIRM','MONITOR','NO_ACTION','NOT_TESTED'];
+  const svg = document.getElementById('sb');
+  const L=76, R=46, top=8, bh=24, gap=12;
+  const W = svg.clientWidth || 760;
+  const max = Math.max(...SAMPLES.map(s => order.reduce((a,k)=>a+s.tiers[k],0)));
+  const plot = W - L - R;
+  let out = '', y = top;
+  SAMPLES.forEach(s => {
+    const tot = order.reduce((a,k)=>a+s.tiers[k],0);
+    out += `<text class="axis-t" x="${L-10}" y="${y+bh/2+4}" text-anchor="end" font-family="ui-monospace,Menlo,monospace">${s.id}</text>`;
+    let x = L;
+    order.forEach(k => {
+      const n = s.tiers[k]; if (!n) return;
+      const w = Math.max(3, (n/max)*plot - 2);
+      out += `<rect x="${x}" y="${y}" width="${w}" height="${bh}" rx="3" fill="${S[k].c}"
+        ${k==='NOT_TESTED'?'stroke="var(--axis)" stroke-width="1"':''}
+        data-t="<b>${s.id}</b> · ${S[k].n}<br>${n} of ${tot} taxon rows"/>`;
+      // label ink chosen by fill luminance — white is illegible on the light warning yellow
+      const onLight = (k==='NOT_TESTED'||k==='MONITOR');
+      if (w > 34) out += `<text class="lbl" x="${x+w/2}" y="${y+bh/2+4}" text-anchor="middle"
+        fill="${onLight?'#0b0b0b':'#fff'}" font-weight="600">${n}</text>`;
+      x += w + 2;
+    });
+    out += `<text class="lbl" x="${x+8}" y="${y+bh/2+4}" font-family="ui-monospace,Menlo,monospace">${tot}</text>`;
+    y += bh + gap;
+  });
+  svg.setAttribute('height', y + 4);
+  svg.innerHTML = out;
+  svg.querySelectorAll('rect[data-t]').forEach(r => {
+    if (r.getBBox().width < 24) r.removeAttribute('data-t'); });
+  svg.querySelectorAll('rect[data-t]').forEach(p => bind(p, p.dataset.t));
+
+  document.getElementById('lsb').innerHTML =
+    `<div class="lg" style="color:var(--muted);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:600">Taxon tier</div>` +
+    order.map(k => `<div class="lg">${swatch(k)}${icon(S[k].i)}${S[k].n}</div>`).join('');
+
+  document.getElementById('tbl-sb').innerHTML =
+    `<thead><tr><th>Swab</th><th>Site</th>${order.map(k=>`<th style="text-align:right">${S[k].n}</th>`).join('')}<th style="text-align:right">Total</th><th style="text-align:right">AMR at CONFIRM</th></tr></thead><tbody>` +
+    SAMPLES.map(s => `<tr><td class="mono" style="color:var(--ink)">${s.id}</td><td>${s.site} · ${s.spot}</td>` +
+      order.map(k=>`<td class="num">${s.tiers[k]||'—'}</td>`).join('') +
+      `<td class="num">${order.reduce((a,k)=>a+s.tiers[k],0)}</td><td class="num">${s.amr.CONFIRM}</td></tr>`).join('') +
+    `</tbody>`;
+})();
+
+/* ── site × run grid ── */
+(function(){
+  const runs = ['2026-08 · R1','R2','R3','R4','R5','R6'];
+  const g = document.getElementById('sitegrid');
+  g.innerHTML =
+    `<thead><tr><th style="width:38%">Swab site</th><th class="run">${runs[0]}</th>` +
+    runs.slice(1).map(r=>`<th class="run ghost">${r}</th>`).join('') + `</tr></thead><tbody>` +
+    SAMPLES.slice().sort((a,b)=>a.site.localeCompare(b.site)).map(s => `<tr>
+      <td><span class="sitename">${s.site}</span><br><span class="sitesub">${s.spot} · <span class="mono">${s.id}</span></span></td>
+      <td class="cellwrap"><span class="cell" style="background:${S[s.v].flat||S[s.v].c};color:${s.v==='MONITOR'?'#0b0b0b':'#fff'}"
+        data-t="<b>${s.id}</b> — ${S[s.v].n}<br>${s.raw} raw reads, ${s.host} host<br>${s.reads} classified">
+        ${icon(S[s.v].i)}${S[s.v].n}</span></td>` +
+      runs.slice(1).map(()=>`<td class="cellwrap"><span class="cell empty">no run</span></td>`).join('') +
+      `</tr>`).join('') + `</tbody>`;
+  g.querySelectorAll('[data-t]').forEach(p => bind(p, p.dataset.t));
+})();
+</script>
