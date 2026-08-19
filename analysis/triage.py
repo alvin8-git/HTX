@@ -1220,8 +1220,9 @@ def _opt(argv, name):
 if __name__ == '__main__':
     _argv = sys.argv[1:]
     _od, _c1 = _opt(_argv, '--outdir')
+    _coh, _c3 = _opt(_argv, '--cohort')
     out, _c2 = _opt(_argv, '--out')
-    _used = _c1 | _c2
+    _used = _c1 | _c2 | _c3
     args = [a for i, a in enumerate(_argv) if i not in _used and not a.startswith('--')]
     # Expand globs ourselves. Inside a container the host shell cannot see /data, so
     # `-v "$PWD/Reports:/data" ... /data/*_en.html` reaches us as a literal pattern - and the host
@@ -1282,13 +1283,13 @@ if __name__ == '__main__':
         import triage_report
         made = triage_report.build_per_sample(
             [report_path(a) for a in (args or SAMPLES)],
-            outdir=os.path.abspath(_od) if _od else None)
+            outdir=os.path.abspath(_od) if _od else None, cohort=_coh)
         for path, sid, verdict, n in made:
             here = os.path.relpath(path, ROOT)
             print(f'  {sid}: {verdict} - {n} comparator{"s" if n != 1 else ""} '
                   f'-> {here if not here.startswith("..") else path}')
         print(f'{len(made)} report(s); registry '
-              f'{os.path.relpath(triage_report.SR.REGISTRY, ROOT)}')
+              f'{os.path.relpath(triage_report.SR.registry_path(_coh), ROOT)}')
 
     elif '--html' in sys.argv:
         # With an explicit --outdir, emit the TSVs in the same run. A WDL task writes a shell

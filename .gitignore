@@ -44,6 +44,9 @@ analysis/triage_rules.xlsx
 # of the baseline each report was judged against, so it is tracked. It carries taxon read
 # counts and no read data, no sequences and no donor identifiers.
 !analysis/sample_registry.json
+# one registry per cohort - field swabs, Zymo standards, long-read stool. Each defines what
+# "normal" means for gate 8 in that population, so each is durable state in its own right.
+!analysis/sample_registry_*.json
 
 # Briefing decks and templates.
 *.pptx

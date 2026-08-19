@@ -1541,18 +1541,21 @@ if the registry has grown since {E(stamp)}.</footer>
     return base + '_report.html', d, cids
 
 
-def build_per_sample(samples, outdir=None):
+def build_per_sample(samples, outdir=None, cohort=None):
     """Two passes, so a batch of new swabs judges each member against all the others.
 
     Pass 1 ingests every requested sample's loads into the registry. Pass 2 renders each report
     against the registry minus itself. Without the split, the first swab of a run would be
     analysed against an empty baseline and the last against a full one - the same asymmetry the
     registry exists to remove.
+
+    `cohort` selects the registry, and therefore what this swab is compared against. Default is
+    the field-swab registry; see sample_registry.registry_path for why they must not be pooled.
     """
     fp = hashlib.sha256(
         open(os.path.join(ROOT, 'analysis', 'triage_rules.json'), 'rb').read() +
         open(os.path.join(ROOT, 'analysis', 'triage.py'), 'rb').read()).hexdigest()[:12]
-    reg, meta = SR.load(), SR.metadata()
+    reg, meta = SR.load(SR.registry_path(cohort)), SR.metadata()
 
     seen = {}
     for s in samples:                                            # pass 1 - ingest

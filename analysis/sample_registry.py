@@ -38,24 +38,45 @@ import os
 import triage
 
 REGISTRY = os.path.join(triage.ROOT, 'analysis', 'sample_registry.json')
+
+
+def registry_path(name=None):
+    """Registry file for one cohort. `name` is a bare label, not a path.
+
+    ONE REGISTRY PER COHORT, and the caller must say which. Gate 8 measures a swab's enrichment
+    against every other sample in its registry, so the registry IS the definition of "normal" for
+    that swab. Pooling the airport swabs with the ZymoBIOMICS standards would have gate 8 ask
+    whether Acinetobacter is enriched in a terminal-4 trolley handle relative to a mock community
+    of eight bacteria at 12% each - a question with an answer, and no meaning. The long-read stool
+    run is a third population and a different assay chemistry again.
+    """
+    if not name:
+        return REGISTRY
+    assert '/' not in name and '\\' not in name and name.strip(), f'cohort label, not a path: {name!r}'
+    return os.path.join(triage.ROOT, 'analysis', f'sample_registry_{name}.json')
 METADATA = os.path.join(triage.ROOT, 'analysis', 'sample_metadata.tsv')
 META_COLS = ['sample_id', 'site_id', 'site_label', 'collected_at', 'run_id']
 
 
-def load():
-    if not os.path.exists(REGISTRY):
-        return {'version': 1, 'samples': {}}
-    with open(REGISTRY, encoding='utf-8') as fh:
-        return json.load(fh)
+def load(path=None):
+    path = path or REGISTRY
+    if not os.path.exists(path):
+        return {'version': 1, 'samples': {}, 'path': path}
+    with open(path, encoding='utf-8') as fh:
+        reg = json.load(fh)
+    reg['path'] = path                 # so save() cannot write a cohort back to the wrong file
+    return reg
 
 
 def save(reg):
+    path = reg.get('path') or REGISTRY
     reg['samples'] = dict(sorted(reg['samples'].items()))
-    tmp = REGISTRY + '.tmp'
+    out = {k: v for k, v in reg.items() if k != 'path'}
+    tmp = path + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as fh:
-        json.dump(reg, fh, indent=1, ensure_ascii=False, sort_keys=False)
+        json.dump(out, fh, indent=1, ensure_ascii=False, sort_keys=False)
         fh.write('\n')
-    os.replace(tmp, REGISTRY)          # atomic: a crash mid-write must not truncate the registry
+    os.replace(tmp, path)              # atomic: a crash mid-write must not truncate the registry
 
 
 def metadata():
