@@ -10,6 +10,7 @@ the exact class of overclaim the rest of the pipeline is built to avoid, so it g
 """
 import os
 import re
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,6 +19,53 @@ import triage
 import triage_report as R
 
 SAMPLES = ['WBM156', 'WBM174', 'WBM179', 'WBM185', 'WBM232']
+
+
+def bec_scheme(codes):
+    """BEC v1: distinct from ACMG by construction, and legible without colour."""
+    acmg = re.compile(r'^(PVS|PS|PM|PP|BA|BS|BM|BP)\d')
+    assert codes, 'no criteria fired anywhere in the batch'
+    bad = [c for c in codes if acmg.match(c)]
+    assert not bad, f'BEC must not reuse ACMG codes; found {bad}'
+    for c in codes:
+        assert R.BEC[c[0]], c
+        if c[0] == 'U':
+            assert re.match(r'^U\d+$', c), f'{c}: U codes carry no direction'
+        else:
+            assert re.match(r'^[DSMP][RL]\d+$', c), f'{c}: <strength><direction><serial>'
+    # every strength must be readable from the pip meter alone, not from the hue
+    fills = {k: R.BEC[k][2] for k in 'DSMPU'}
+    assert sorted(fills.values()) == [0, 1, 2, 3, 4], fills
+    for c in sorted(codes):
+        b = R.bec_badge(c)
+        assert b.count('&#9679;') == R.BEC[c[0]][2], f'{c}: pip count must equal strength'
+        assert b.count('&#9679;') + b.count('&#9675;') == 4, f'{c}: meter is always 4 wide'
+    # the two decisive criteria, and only those
+    dec = sorted(c for c in codes if c[0] == 'D')
+    assert dec == ['DL1', 'DR1'], f'expected exactly the marker and read-floor gates, got {dec}'
+    print(f'  BEC v1: {len(codes)} codes fired, none ACMG, pip meter matches strength')
+
+
+def contrast():
+    """Badge text must clear WCAG AA 4.5:1. Measured, never eyeballed."""
+    def lum(h):
+        v = [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        v = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in v]
+        return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]
+    pairs = [('.bec.dR', '#C02A2A', '#FBEAEA'), ('.bec.dR.s4', '#FFFFFF', '#C02A2A'),
+             ('.bec.dL', '#1E7A3C', '#EAF5EE'), ('.bec.dU', '#5C5C5C', '#F2F3F4'),
+             # .off drops the tint, so the panel background becomes the backdrop
+             ('.bec.dR.off', '#C02A2A', '#EDF2F8'), ('.bec.dL.off', '#1E7A3C', '#EDF2F8'),
+             ('.bec.dU.off', '#5C5C5C', '#EDF2F8')]
+    for name, fg, bg in pairs:
+        a, b = sorted((lum(fg), lum(bg)), reverse=True)
+        r = (a + 0.05) / (b + 0.05)
+        assert r >= 4.5, f'{name}: {fg} on {bg} is {r:.2f}:1, below AA'
+        assert f'color:{fg.lower()}' in R.CSS.lower() or fg == '#FFFFFF', name
+        print(f'  {name:14s} {fg} on {bg}  {r:.2f}:1')
+    # an unmet criterion keeps its strength but must not render as the loudest thing on screen
+    assert '.bec.off{background:transparent' in R.CSS
+    assert R.bec_badge('DR1', 'unmet').count('off') == 1 and 'off' not in R.bec_badge('DR1')
 
 
 def main():
@@ -34,18 +82,38 @@ def main():
 
     # --- ledger: gates decide, the ledger only reports -----------------------------
     lg = {c['code']: c for c in R.ledger(d, ab)}
-    assert lg['PM1']['state'] == 'met', 'A. baumannii is on the clinical watchlist'
-    assert lg['PP2']['state'] == 'met', '6.0x enriched, floor 5.0x'
-    assert lg['BM1']['state'] == 'against', 'Bracken inflated 19x - a downgrade, not support'
-    assert lg['PVS1']['state'] == 'unmet' and 'ceiling' in lg['PVS1']['measured'], \
+    assert lg['SR2']['state'] == 'met', 'A. baumannii is on the clinical watchlist'
+    assert lg['MR3']['state'] == 'met', '6.0x enriched, floor 5.0x'
+    assert lg['ML1']['state'] == 'met', 'Bracken inflated 19x - a downgrade, not support'
+    assert lg['DR1']['state'] == 'unmet' and 'ceiling' in lg['DR1']['measured'], \
         'not a CDC agent, so the ceiling is CONFIRM and ESCALATE is unreachable'
-    assert 'NA3' in lg and lg['NA3']['state'] == 'na', \
+    assert 'U4' in lg and lg['U4']['state'] == 'na', \
         'gate 10 did not run for this agent and must not read as a clear'
-    # PS3 must be scored on a gene the escalation test actually weighed, and must name it.
+    # MR2 must be scored on a gene the escalation test actually weighed, and must name it.
     esc = {g['group'] for _, gs in (R.escalating_rows(ab, d['genes']) or [])
            for g in gs if g['verdict'] == 'CONFIRM'}
-    assert any(g in lg['PS3']['measured'] for g in esc), \
-        f'PS3 must name an escalating-class gene; said {lg["PS3"]["measured"]!r}'
+    assert any(g in lg['MR2']['measured'] for g in esc), \
+        f'MR2 must name an escalating-class gene; said {lg["MR2"]["measured"]!r}'
+
+    # --- BEC v1, over every criterion the whole batch can produce -----------------
+    bec_scheme({c['code'] for dd in data for t in dd['taxa'] for c in R.ledger(dd, t)})
+    contrast()
+
+    # --- host rank: the attribution column, and the sample-verdict gate ------------
+    esc_g = [g for _c, gs in R.escalating_rows(ab, d['genes']) for g in gs]
+    cells = [R.host_rank_cell(ab, g) for g in esc_g]
+    assert cells and any('of' in c for c in cells), 'no host rank rendered for WBM232'
+    for g, c in zip(esc_g, cells):
+        ctx = next((x for x in ab['amr_context'] if x['group'] == g['group']), None)
+        if ctx is None:
+            assert 'no host hint' in c, g['group']
+        elif ctx['self_rank'] == 1:
+            assert '<b>1 of' in c, g['group']
+        else:
+            assert 'leads' in c, f"{g['group']}: a non-leading rank must name the leader"
+    tbl = R.classes_html(d, ab)
+    assert 'Host rank in this swab' in tbl and 'promotes the swab verdict' in tbl, \
+        'the rank column must say what it is FOR, not just print a number'
     # A verdict is never recomputed here - the ledger reports whatever the cascade set.
     assert ab['verdict'] == 'CONFIRM'
 
@@ -64,8 +132,8 @@ def main():
     solo = R.collect(['WBM232_en.html'])[0]
     ab1 = next(t for t in solo['taxa'] if t['taxon'].startswith('Acinetobacter baumannii'))
     lg1 = {c['code']: c for c in R.ledger(solo, ab1)}
-    assert 'PP2' not in lg1, 'enrichment is untestable with one sample and must not be claimed'
-    assert lg1['PP3']['state'] == 'met' and 'untestable' in lg1['PP3']['measured'], \
+    assert 'MR3' not in lg1, 'enrichment is untestable with one sample and must not be claimed'
+    assert lg1['PR1']['state'] == 'met' and 'untestable' in lg1['PR1']['measured'], \
         'the abundance fallback route must be named, not left silent'
 
     # --- the virulence floor: no trace-level hit may render as a positive ----------

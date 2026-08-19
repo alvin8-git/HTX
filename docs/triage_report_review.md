@@ -71,48 +71,77 @@ measured (`csuB` 48.5%/13.32×, `pgaC` 46.2%/12.37×) and marks the rest `NOT YE
 than asserting absence — the report currently displays 39 of the 121 factors, so absence is not
 observable from it anyway.
 
-### 3 · Criteria ledger — the ACMG analogue
+### 3 · Criteria ledger — BEC v1
 
 The 12 gates already behave as an evidence-code system: each contributes a signed, named, measured
 piece of evidence, and fixed rules combine them. They simply never publish the tick-list.
 **The gates keep deciding the verdict; the ledger only shows their work.** No change to
 `triage.py`'s decision logic, so no regression risk to an engine validated across 3 datasets.
 
+**Why not ACMG's codes.** The first draft reused `PVS1`/`PS1`/`PM1`/`PP1`/`BS1` verbatim. That was
+wrong. Those labels carry Tavtigian's calibrated odds of pathogenicity — `PVS1` is ~350:1 under a
+published Bayesian model, for germline variant classification. Nothing here has been calibrated
+against an outcome, so borrowing the namespace would import a quantitative claim the pipeline
+cannot support, and would invite a clinical reader to combine our codes with ACMG's combining
+rules. **BEC v1 — Biosurveillance Evidence Criteria** keeps the useful idea and states its own
+strengths as ordinal labels for how far the cascade lets a criterion move a verdict.
+
+A code is `<strength><direction><serial>`:
+
+| | Strength | Meaning |
+|---|---|---|
+| `D` | Decisive | settles the row on its own |
+| `S` | Strong | sets or removes a ceiling, or moves the tier where it fires |
+| `M` | Moderate | contributes and can tip a row, never alone |
+| `P` | Supporting | corroborates; cannot tip anything by itself |
+| `U` | Not assessable | the gate could not run — no strength, no direction |
+
+`R` raises concern, `L` lowers it. Exactly two criteria are decisive.
+
 | Code | Criterion | Gate |
 |---|---|---|
-| `PVS1` | CDC threat-list agent **with** its confirmatory two-way marker detected | 10a |
-| `PS1` | Supporting one-way marker detected | 10b |
-| `PS2` | Acquired AMR in an escalating class, **full-length** (≥80% / 5×) | 3–5 |
-| `PS3` | Most abundant documented host of the gene, or ≥20% of the host pool | 8 |
-| `PM1` | Organism on the clinical watchlist | 1b |
-| `PM2` | Acquired AMR in an escalating class, **partial** (≥50% / 10×) | 3–5 |
-| `PM3` | Core virulence determinant detected — *pending `vf_core`* | — |
-| `PP1` | Real reads above the floor (50) | 1 |
-| `PP2` | Cross-sample enrichment ≥5× | 8 |
-| `BS1` | Confirmatory two-way marker **absent** where the gate ran — counts against | 10a |
-| `BM1` | Bracken estimate inflated >10× over real reads — judged on real | 7 |
-| `BM2` | Near-neighbour co-detected at comparable depth | 9 |
-| `BP1` | Genus on the kitome list (reagent contaminant) | — |
-| `BP2` | Below the read floor | 1 |
-| `NA1` | Assay cannot see this agent — RNA genome, DNA library | 2 |
-| `NA2` | Confirmatory marker not assessable at this coverage | 10a |
-| `NA3` | No confirmatory or supporting marker defined for this agent | 10 |
-| `NA4` | Input integrity failure | 12 |
+| `DR1` | Threat-list agent **with** its confirmatory two-way marker present — the only route to `ESCALATE` | 10a |
+| `DL1` | Below the read floor (50) — gate 1 stops the cascade, nothing after it runs | 1 |
+| `SR1` | Supporting one-way marker present | 10b |
+| `SR2` | Organism on the clinical watchlist — ceiling is `CONFIRM` | 1b |
+| `SR3` | Organism on the CDC threat list | 1b |
+| `SR4` | Acquired AMR in an escalating class, **full-length** (≥80% / 5×) | 3–5 |
+| `SL1` | Confirmatory two-way marker **absent** where the gate ran | 10a |
+| `MR1` | Acquired AMR in an escalating class, **partial** (≥50% / 10×) | 3–5 |
+| `MR2` | Most abundant documented host of an escalating-class gene, or ≥20% of the host pool | 8 |
+| `MR3` | Cross-sample enrichment ≥5× | 8 |
+| `ML1` | Bracken estimate inflated >10× over real reads — judged on real | 7 |
+| `PR1` | Abundance above the no-comparator floor (enrichment untestable) | 8 |
+| `PR2` | Real reads above the floor (50) | 1 |
+| `U1` | Assay cannot see this agent — RNA genome, DNA library | 2 |
+| `U2` | Confirmatory marker not assessable at this coverage | 10a |
+| `U3` | Supporting marker not found — one-way gate, so **not** an exclusion | 10b |
+| `U4` | No confirmatory or supporting marker defined for this agent | 10 |
 
-**The `NA` axis is the deliberate departure from ACMG.** ACMG has pathogenic and benign directions
-only. Here an unexamined agent is neither — that distinction is the project's central semantic
-commitment, and collapsing it into "benign" is exactly the error the design exists to prevent.
-Any `NA1` forces `NOT_TESTED` regardless of what else fired.
+**The `U` axis is the deliberate departure from any for/against scheme.** ACMG has pathogenic and
+benign directions only. Here an unexamined agent is neither — that distinction is the project's
+central semantic commitment, and collapsing it into "benign" is exactly the error the design
+exists to prevent. Any `U1` forces `NOT_TESTED` regardless of what else fired.
 
 Ceiling rules stay as the engine already applies them: a watchlist-only organism cannot exceed
 `CONFIRM`; `ESCALATE` is reserved for a threat-list agent with its confirmatory marker.
 
+**Rendering.** Three channels, never colour alone: hue is the direction (red raises, green lowers,
+grey not assessable), a four-pip meter is the strength, and the badge's left rail thickens with it.
+A criterion that was tested and did not fire keeps its strength but drops to an outline, so the
+loudest badge on screen is always one that actually fired. All six variants are contrast-tested
+in `analysis/test_flagged_layer.py`, measured rather than eyeballed; the lowest is 4.78:1.
+
+**No arithmetic.** The summary line names the strongest criterion that fired in each direction. It
+never counts them — counting would let three supporting criteria outweigh one decisive one, which
+is precisely the combination rule BEC declines to adopt.
+
 #### What the ledger exposes that the prose hides
 
-For *A. baumannii* / WBM232 the ledger reads **4 met, 1 against, 3 not applicable** — and the met
-criteria are `PM1` (WHO critical watchlist), `PP2` (6.0× enrichment) and `PP1` (6,496 reads).
-`PS3` is **not** met: *S. epidermidis* is 4× more abundant and is itself a documented host of
-AAC6-PRIME.
+For *A. baumannii* / WBM232 the strongest raising criterion is `SR2` (WHO critical watchlist);
+`MR1` (partial acquired resistance in 2 of 4 escalating classes), `MR2`, `MR3` (6.0× enrichment)
+and `PR2` (6,496 reads) also fire, against `ML1` (Bracken inflated 19×). `DR1` is **not** met — not
+a CDC agent, so the ceiling is `CONFIRM`.
 
 > **The CONFIRM rests on watchlist membership plus 6× enrichment — not on the 13 co-detected
 > resistance genes.** The current card leads with the gene table, which reads as though the AMR
@@ -193,13 +222,13 @@ Five defects the implementation surfaced that the mockup had not:
    borrowing as a reporting convention**, and reads *"0 of 5 core determinants above the breadth
    floor, 5 more at trace level"*. That is a real finding — every curated determinant for this
    organism is at trace coverage at this depth. It has a regression test.
-2. **`PS3` scored the wrong gene.** Any-gene rank-1 let the taxon lead on an irrelevant gene while
+2. **`MR2` (then `PS3`) scored the wrong gene.** Any-gene rank-1 let the taxon lead on an irrelevant gene while
    *S. epidermidis* outranked it 4× on AAC6-PRIME, the gene that mattered. Now restricted to
    escalating-class `CONFIRM` genes, and it **names the gene**: *rank 1 of 63 candidate hosts of
    ANT3-DPRIME*.
 3. **A single-sample run had no criterion for the route that fired.** With no comparators the
    engine falls back from enrichment to abundance ≥ 1.0%; the ledger named only enrichment and
-   went silent. Added `PP3`, which states that enrichment is untestable rather than omitting it.
+   went silent. Added `PR1` (then `PP3`), which states that enrichment is untestable rather than omitting it.
 4. **The masthead counted rows, not agents** — 25 RNA agents × 5 samples read as *"125 agents the
    assay could not see"*, overstating the gap fivefold.
 5. **`S. aureus` filled 4 of 6 slots in band 2** with one finding repeated per sample. Rows are now

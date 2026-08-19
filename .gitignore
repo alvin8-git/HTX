@@ -58,3 +58,6 @@ graphify-out/
 .claude/
 __pycache__/
 *.pyc
+
+# derived per-swab DB payload; regenerate with `triage.py --per-sample`
+analysis/*_report.json

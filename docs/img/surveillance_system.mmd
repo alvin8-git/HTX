@@ -1,0 +1,29 @@
+flowchart TB
+  classDef built fill:#EDF2F8,stroke:#00539B,stroke-width:2px,color:#333
+  classDef todo fill:#FDF7EE,stroke:#AD6400,stroke-width:2px,stroke-dasharray:5 4,color:#333
+  classDef store fill:#EAF5EE,stroke:#1E7A3C,stroke-width:2px,color:#333
+  classDef intake fill:#fff,stroke:#6D6D6D,stroke-width:1px,color:#333
+
+  A["PFI report<br/><tt>WBM232_en.html</tt>"]:::intake
+  B["Swab metadata<br/>site · date · flowcell"]:::intake
+  C["<b>triage.py</b> · 12-gate cascade<br/>rules fp + cohort fp"]:::built
+  D["<b>WBM232_report.html</b><br/>verdict · BEC ledger · evidence"]:::built
+  E["<tt>WBM232_report.json</tt><br/>same evidence, DB shape"]:::built
+  F["<b>Surveillance DB</b><br/>registry · taxa · genes · BEC"]:::store
+  subgraph DASH[" Managing dashboard · not built "]
+    direction LR
+    I["Swabs analysed<br/>verdict breakdown"]:::todo
+    J["Sites ·<br/>swab locations"]:::todo
+    K["Longitudinal<br/>site × time"]:::todo
+    L["Pathogen<br/>history"]:::todo
+  end
+
+  A --> C
+  B --> C
+  C --> D
+  C --> E
+  E --> F
+  F -- "gate 8 cohort<br/>for the next swab" --> C
+  I ~~~ J ~~~ K ~~~ L
+  F -- "dashboard builder<br/>· not built ·" --> DASH
+  DASH -. "drill down to the swab" .-> D

@@ -4,7 +4,7 @@
   "WBM156": {
    "classified": 622642,
    "verdict": "MONITOR",
-   "analysed_at": "2026-08-18 17:21",
+   "analysed_at": "2026-08-19 10:08",
    "rules_fp": "be7c9f337260",
    "cohort": [
     "WBM174",
@@ -392,7 +392,7 @@
   "WBM174": {
    "classified": 2465508,
    "verdict": "NO ACTION",
-   "analysed_at": "2026-08-18 17:21",
+   "analysed_at": "2026-08-19 10:08",
    "rules_fp": "be7c9f337260",
    "cohort": [
     "WBM156",
@@ -1336,7 +1336,7 @@
   "WBM179": {
    "classified": 3110882,
    "verdict": "NO ACTION",
-   "analysed_at": "2026-08-18 17:21",
+   "analysed_at": "2026-08-19 10:08",
    "rules_fp": "be7c9f337260",
    "cohort": [
     "WBM156",
@@ -2044,7 +2044,7 @@
   "WBM185": {
    "classified": 2006566,
    "verdict": "INVESTIGATE",
-   "analysed_at": "2026-08-18 17:21",
+   "analysed_at": "2026-08-19 10:08",
    "rules_fp": "be7c9f337260",
    "cohort": [
     "WBM156",
@@ -3026,7 +3026,7 @@
   "WBM232": {
    "classified": 2590665,
    "verdict": "INVESTIGATE",
-   "analysed_at": "2026-08-18 17:21",
+   "analysed_at": "2026-08-19 10:08",
    "rules_fp": "be7c9f337260",
    "cohort": [
     "WBM156",

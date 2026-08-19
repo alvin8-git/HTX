@@ -145,19 +145,78 @@ def vf_for_taxon(vf_rows, taxon):
 #   2. Which virulence determinants are present, and do they matter?
 #   3. Which criteria did the cascade actually tick, and what is the verdict resting on?
 #
-# Block 3 is an ACMG-style criteria ledger. The 12 gates already behave as an evidence-code
-# system - each contributes a named, signed, measured piece of evidence and fixed rules combine
-# them - they simply never published the tick-list. THE GATES STILL DECIDE. Nothing below
-# recomputes a verdict; every line reads a field the cascade already wrote. The one deliberate
-# departure from ACMG is the NA axis: ACMG has pathogenic and benign directions only, and here an
-# unexamined agent is neither. Collapsing NA into "benign" is the exact error this report exists
-# to prevent.
+# Block 3 is a criteria ledger written in this project's own scheme, BEC v1 - Biosurveillance
+# Evidence Criteria. The 12 gates already behave as an evidence-code system: each contributes a
+# named, directional, measured piece of evidence, and fixed rules combine them. They simply never
+# published the tick-list. THE GATES STILL DECIDE. Nothing below recomputes a verdict; every line
+# reads a field the cascade already wrote.
+#
+# WHY NOT ACMG'S CODES. An earlier draft reused PVS1/PS1/PM1/PP1/BS1 verbatim. That was a mistake.
+# Those labels carry Tavtigian's calibrated odds of pathogenicity - PVS1 is ~350:1 under a
+# published Bayesian model, for germline variant classification. Nothing in this pipeline has been
+# calibrated against an outcome, so borrowing the namespace would import a quantitative claim it
+# cannot support, and would invite a clinical reader to combine our codes with ACMG's combining
+# rules. BEC keeps the useful idea - named, directional, strength-tiered criteria combined by
+# fixed rules - and defines its own strengths as ORDINAL LABELS OF HOW FAR THE CASCADE LETS A
+# CRITERION MOVE A VERDICT. They are not likelihood ratios and must not be read as any.
+#
+# A code is <strength><direction><serial>:
+#   D  decisive    settles the row by itself. Two criteria reach this: the confirmatory marker
+#                  on a threat-list agent (the only route to ESCALATE) and the read floor
+#                  (below it the cascade stops - `continue` at gate 1 - and nothing later runs).
+#   S  strong      sets or removes a ceiling, or moves the tier where it fires.
+#   M  moderate    contributes and can tip a row, but never alone.
+#   P  supporting  corroborates. Cannot tip anything by itself.
+#   R  raises concern / L lowers it.
+#   U<serial>      NOT ASSESSABLE: the gate could not run. No strength and no direction, by
+#                  construction. This is the deliberate departure from any scheme with only a
+#                  for/against axis - an unexamined agent is neither, and folding U into "against"
+#                  is the exact error this report exists to prevent.
+#
+# The strength is a property of the CODE. Whether it fired is the state, kept separate:
+#   met    the criterion was tested and is satisfied
+#   unmet  it was tested and is not satisfied
+#   na     it could not be tested (U codes only)
 
-# state -> (glyph, css class). 'met' counts toward concern, 'against' counts away from it,
-# 'na' means the gate could not run, 'unmet' means it ran and the criterion was not satisfied.
-STATE = {'met': ('&#10003;', 'met'), 'against': ('&#10007;', 'met'),
-         'na': ('&#9675;', 'unmet'), 'unmet': ('&#9675;', 'unmet')}
-ORDER_STATE = ['met', 'against', 'unmet', 'na']
+# strength letter -> (sort rank, label, filled pips out of 4)
+BEC = {'D': (0, 'Decisive', 4), 'S': (1, 'Strong', 3), 'M': (2, 'Moderate', 2),
+       'P': (3, 'Supporting', 1), 'U': (4, 'Not assessable', 0)}
+
+STATE = {'met': ('&#10003;', 'met'), 'unmet': ('&#9675;', 'unmet'), 'na': ('&#9675;', 'unmet')}
+ORDER_STATE = ['met', 'unmet', 'na']
+
+
+def pip_key(letter):
+    """Legend entry: the pip meter alone. Strength is what the legend explains; the hue rule is
+    stated in prose beside it, because a hue swatch with no code on it means nothing."""
+    _r, label, fill = BEC[letter]
+    return (f'<span class="pipkey">{"&#9679;" * fill}{"&#9675;" * (4 - fill)}</span> '
+            f'{letter} {label}')
+
+
+def strongest(lg, dirn='R'):
+    """(code, state) of the strongest criterion that FIRED in one direction, or None.
+
+    Never a count. Counting met lines would let three supporting criteria outweigh one decisive
+    one, which is exactly the arithmetic BEC declines to do - the cascade combines criteria by
+    fixed rules, not by score, and the summary must not imply otherwise.
+    """
+    c = [x for x in lg if x['state'] == 'met' and x['code'][0] != 'U' and x['code'][1] == dirn]
+    return (min(c, key=lambda x: BEC[x['code'][0]][0])['code'], 'met') if c else None
+
+
+def bec_badge(code, state='met'):
+    """Strength badge. THREE channels, never colour alone: hue is the direction (red raises,
+    green lowers, grey not assessable), the pip meter is the strength, and the left rail thickens
+    with it. A reader with any colour vision reads the pips; a fast scan reads the hue.
+    """
+    _rank, label, fill = BEC[code[0]]
+    dirn = 'U' if code[0] == 'U' else code[1]
+    pips = '&#9679;' * fill + '&#9675;' * (4 - fill)
+    tail = '' if dirn == 'U' else (', lowers concern' if dirn == 'L' else ', raises concern')
+    off = '' if state == 'met' else ' off'   # tested and not satisfied, or never testable
+    return (f'<span class="bec d{dirn} s{fill}{off}" title="{label}{tail}">'
+            f'<span class="pips" aria-hidden="true">{pips}</span>{E(code)}</span>')
 
 FULL_LENGTH = 'gene_breadth_confident'   # >= this breadth is a full-length call, below it partial
 
@@ -217,11 +276,11 @@ def ledger(d, t):
 
     # --- gate 2: the only criterion that overrides everything below it.
     if t['verdict'] == 'NOT_TESTED' and not t.get('real'):
-        add('NA1', 'na', 'Assay structurally cannot see this agent',
+        add('U1', 'na', 'Assay structurally cannot see this agent',
             'RNA genome screened against a DNA library - the test did not run', '2')
     if t['verdict'] == 'NOT_TESTED' and t.get('real'):
         mp = t.get('marker_power')
-        add('NA2', 'na', 'Confirmatory marker not assessable at this coverage',
+        add('U2', 'na', 'Confirmatory marker not assessable at this coverage',
             (f'marker power {mp:.0%} &lt; {TH["marker_power_min"]:.0%} floor - its absence is the '
              f'expected outcome either way' if isinstance(mp, float) else
              'below the power floor - its absence carries no information'), '10a')
@@ -230,31 +289,31 @@ def ledger(d, t):
     if t.get('markers_required'):
         found = [x for x in (t.get('markers_found') or [])]
         if found:
-            add('PVS1', 'met', 'Threat-list agent with its confirmatory marker present',
+            add('DR1', 'met', 'Threat-list agent with its confirmatory marker present',
                 'found: ' + ', '.join(found), '10a')
         elif t['verdict'] != 'NOT_TESTED':
-            add('BS1', 'against', 'Confirmatory marker absent where the two-way gate ran',
+            add('SL1', 'met', 'Confirmatory marker absent where the two-way gate ran',
                 'required: ' + ' / '.join(t['markers_required']), '10a')
     if t.get('supporting_required'):
         sup = t.get('supporting_found') or []
         if sup:
-            add('PS1', 'met', 'Supporting marker present - one-way gate',
+            add('SR1', 'met', 'Supporting marker present &mdash; one-way gate',
                 'found: ' + ', '.join(sup), '10b')
         else:
-            add('NA4', 'na', 'Supporting marker not found - one-way gate, so NOT an exclusion',
+            add('U3', 'na', 'Supporting marker not found &mdash; one-way gate, so NOT an exclusion',
                 'VFDB coverage for this agent cannot be certified from the report', '10b')
     if not t.get('markers_required') and not t.get('supporting_required'):
-        add('NA3', 'na', 'No confirmatory or supporting marker defined for this agent',
+        add('U4', 'na', 'No confirmatory or supporting marker defined for this agent',
             'gate 10 did not run - this is not an absence of evidence', '10')
 
     # --- gate 1b: list membership, and the ceiling it implies.
     if tier == 'W':
-        add('PM1', 'met', 'Organism on the clinical watchlist',
+        add('SR2', 'met', 'Organism on the clinical watchlist',
             E(t.get('watch_priority') or 'clinical watchlist'), '1b')
     elif cdc:
-        add('PM1', 'met', 'Organism on the CDC threat list', f'Category {E(tier)}', '1b')
+        add('SR3', 'met', 'Organism on the CDC threat list', f'Category {E(tier)}', '1b')
     if not cdc and not t.get('markers_found'):
-        add('PVS1', 'unmet', 'CDC threat-list agent with its confirmatory marker',
+        add('DR1', 'unmet', 'CDC threat-list agent with its confirmatory marker',
             'not a CDC agent - <b>ceiling is CONFIRM</b>' if tier == 'W' else 'not a listed agent',
             '1b')
 
@@ -264,7 +323,7 @@ def ledger(d, t):
     hit = [(c, gs) for c, gs in conf if gs]
     if hit:
         full = [g for _, gs in hit for g in gs if g['breadth'] >= TH[FULL_LENGTH]]
-        code, note = ('PS2', 'full-length') if full else ('PM2', 'partial')
+        code, note = ('SR4', 'full-length') if full else ('MR1', 'partial')
         add(code, 'met', f'Acquired resistance in an escalating class - {note} call',
             f'{len(hit)} of {len(esc)} classes &mdash; ' + ', '.join(c for c, _ in hit), '3&ndash;5')
 
@@ -277,14 +336,14 @@ def ledger(d, t):
     if ctx:
         lead = [x for x in ctx if x.get('self_rank') == 1]
         if lead:
-            add('PS3', 'met',
+            add('MR2', 'met',
                 'Most abundant documented host, for a gene in an escalating class',
                 f'rank 1 of {lead[0].get("n_hosts", "?")} candidate hosts of '
                 f'{E(lead[0]["group"])}', '8')
         else:
             top = min(ctx, key=lambda x: x.get('self_rank') or 99)
             rival = next((n for n, _ in top.get('candidates', []) if n != t['taxon']), None)
-            add('PS3', 'unmet',
+            add('MR2', 'unmet',
                 'Most abundant documented host, or &ge;'
                 f'{TH["escalation_host_share"]:.0%} of the host pool',
                 (f'not met on {E(top["group"])} &mdash; <i>{E(rival)}</i> outranks it'
@@ -297,49 +356,95 @@ def ledger(d, t):
     fold = t.get('fold')
     if isinstance(fold, float) and fold != float('inf'):
         st = 'met' if fold >= TH['enrichment_fold'] else 'unmet'
-        add('PP2', st, 'Cross-sample enrichment above threshold',
+        add('MR3', st, 'Cross-sample enrichment above threshold',
             f'{fold:.1f}x vs other samples (floor {TH["enrichment_fold"]:.1f}x)', '8')
     elif not d.get('comparators') and t.get('abundance'):
         ab = float(str(t['abundance']).rstrip('%') or 0)
         flr = TH['watchlist_min_abundance_no_comparators']
         st = 'met' if ab >= flr else 'unmet'
-        add('PP3', st, 'Abundance above the no-comparator floor',
+        add('PR1', st, 'Abundance above the no-comparator floor',
             f'{ab:.2f}% (floor {flr:.1f}%) &mdash; <b>no comparator samples, so enrichment '
             f'is untestable</b> and abundance stands in for it', '8')
 
     # --- gate 1: the read floor.
+    # Decisive on the way down: gate 1 does `continue` below the floor, so nothing after it
+    # runs. Above the floor it is only supporting - clearing a floor is not evidence of a threat.
     if t.get('real'):
-        s = 'met' if t['real'] >= TH['min_real_reads'] else 'against'
-        add('PP1' if s == 'met' else 'BP1', s,
-            'Real reads above the floor' if s == 'met' else 'Below the read floor',
+        ok = t['real'] >= TH['min_real_reads']
+        add('PR2' if ok else 'DL1', 'met',
+            'Real reads above the floor' if ok else 'Below the read floor &mdash; cascade stopped',
             f'{t["real"]:,} reads (floor {TH["min_real_reads"]:,})', '1')
 
     # --- gate 7: Bracken redistribution. A downgrade, so it counts against.
     if t.get('real') and t.get('est') and t['est'] / t['real'] > TH['bracken_inflation_ratio']:
-        add('BM1', 'against', 'Bracken estimate inflated over real reads &mdash; judged on real',
+        add('ML1', 'met', 'Bracken estimate inflated over real reads &mdash; judged on real',
             f'{t["est"]:,} est / {t["real"]:,} real = {t["est"]/t["real"]:.0f}x '
             f'(floor {TH["bracken_inflation_ratio"]}x)', '7')
     return out
 
 
 def ledger_html(d, t):
-    lg = sorted(ledger(d, t), key=lambda c: ORDER_STATE.index(c['state']))
+    lg = sorted(ledger(d, t), key=lambda c: (ORDER_STATE.index(c['state']), BEC[c['code'][0]][0]))
     rows = ''.join(
-        f'<tr><td class="code {STATE[c["state"]][1]}">{STATE[c["state"]][0]} {E(c["code"])}</td>'
-        f'<td class="{STATE[c["state"]][1]}">{c["text"]}</td>'
+        f'<tr><td class="code">{bec_badge(c["code"], c["state"])}</td>'
+        f'<td class="{STATE[c["state"]][1]}">{STATE[c["state"]][0]} {c["text"]}</td>'
         f'<td class="meas">{c["measured"]}</td><td class="num gate">{c["gate"]}</td></tr>'
         for c in lg)
-    tally = collections.Counter(c['state'] for c in lg)
-    verdict = (f'<div class="verdictline"><b>{tally["met"]} met, {tally["against"]} against, '
-               f'{tally["na"] + tally["unmet"]} not applicable</b> &rarr; {chip(t["verdict"])}</div>')
+
+    # Summarise by the STRONGEST criterion that fired in each direction, not by a count. Counting
+    # met lines would let three supporting criteria outweigh one decisive one, which is precisely
+    # the arithmetic BEC refuses to do.
+    up, dn = strongest(lg, 'R'), strongest(lg, 'L')
+    part = []
+    for lbl, x in (('raising', up), ('lowering', dn)):
+        if x:
+            part.append(f'strongest {lbl}: {bec_badge(*x)} <b>{BEC[x[0][0]][1]}</b>')
+    na = sum(1 for c in lg if c['state'] != 'met')
+    part.append(f'{na} not assessable or unmet')
+    verdict = (f'<div class="verdictline">{" &nbsp;&middot;&nbsp; ".join(part)} '
+               f'&rarr; {chip(t["verdict"])}</div>')
+
     return (f'<div class="ev"><h4>3 &middot; Criteria ledger &mdash; why this row is '
             f'{E(t["verdict"].replace("_", " "))}</h4>'
-            f'<p class="tiny">Each line is one gate of the cascade, named and given the value it '
-            f'measured. <b>The gates decide the verdict; this table only publishes the tick-list '
-            f'they already produce.</b> A criterion whose gate could not run is marked '
+            f'<p class="tiny">Each line is one gate of the cascade, named under <b>BEC v1</b> and '
+            f'given the value it measured. The badge carries the criterion\'s <b>strength</b> '
+            f'&mdash; {" &middot; ".join(pip_key(k) for k in BEC)} '
+            f'&mdash; and its direction: red raises concern, green lowers it, grey could not be '
+            f'assessed. <b>The gates decide the verdict; this table only publishes the tick-list '
+            f'they already produce.</b> Strengths are ordinal labels for how far the cascade lets '
+            f'a criterion move a verdict. <b>They are not likelihood ratios</b>, nothing here has '
+            f'been calibrated against an outcome, and BEC codes must not be combined using any '
+            f'other scheme\'s rules. A criterion whose gate could not run is marked '
             f'<span class="unmet">&#9675;</span> and is never read as a clear.</p>'
-            f'<table class="ev"><tr><th>Code</th><th>Criterion</th><th>Measured</th>'
+            f'<table class="ev"><tr><th>Strength</th><th>Criterion</th><th>Measured</th>'
             f'<th class="num">Gate</th></tr>{rows}</table>{verdict}</div>')
+
+
+def host_rank_cell(t, g):
+    """Where THIS taxon sits among the documented hosts of gene `g` that are present in the sample.
+
+    The whole point of the column. MEGARes has no organism column, so a co-detected gene is a fact
+    about the swab; `amr_host_hints` says which genera are documented to carry it, and the species
+    table says which of those are actually here and how deep. The rank is the only thing in the
+    table that argues for or against attributing the gene to this row rather than to a congener,
+    and it is not decorative: `triage.sample_verdict` promotes a swab only when a LISTED organism
+    is the rank-1 host of a CONFIRM gene (triage.py, gate 8) - otherwise the resistome is read as
+    commensal carriage. So rank 1 is a criterion for upgrading; rank 7 of 12 is the reason not to.
+    """
+    c = next((x for x in (t.get('amr_context') or []) if x['group'] == g['group']), None)
+    if not c:
+        return ('<td class="unmet tiny">no host hint indexed for this genus</td>')
+    r, n = c.get('self_rank'), c.get('n_hosts') or 0
+    if r == 1:
+        return (f'<td class="met"><b>1 of {n}</b> <span class="tiny">most abundant '
+                f'documented host present</span></td>')
+    if not r:
+        return f'<td class="unmet tiny">not among the {n} hosts present</td>'
+    lead = c.get('top_host')
+    ratio = c.get('ratio')
+    return (f'<td class="unmet"><b>{r} of {n}</b> <span class="tiny">&mdash; '
+            f'<i>{E(lead)}</i> leads'
+            + (f' by {ratio:.0f}&times;' if ratio and ratio >= 1.5 else '') + '</span></td>')
 
 
 def classes_html(d, t):
@@ -353,7 +458,7 @@ def classes_html(d, t):
                  '<span class="tag none">NONE</span>')
         if not hits:
             rows += (f'<tr><td class="unmet">{E(cls)}</td><td>{badge}</td>'
-                     f'<td class="acc unmet" colspan="4">no acquired gene of this class detected</td></tr>')
+                     f'<td class="acc unmet" colspan="5">no acquired gene of this class detected</td></tr>')
             continue
         for k, g in enumerate(hits):
             call = 'full length' if g['breadth'] >= TH[FULL_LENGTH] else 'partial'
@@ -361,15 +466,26 @@ def classes_html(d, t):
                      f'<td>{badge if k == 0 else ""}</td>'
                      f'<td class="acc">{E(g["group"])} ({E(g["allele"])})</td>'
                      f'<td class="num">{g["breadth"]:.1f}%</td><td class="num">{g["depth"]:.2f}x</td>'
-                     f'<td>{chip(g["verdict"])} <span class="tiny">{call}</span></td></tr>')
-    return (f'<div class="ev"><h4>1 &middot; Which resistance classes would raise this organism</h4>'
-            f'<p class="tiny">Fixed per organism in <code>clinical_watchlist</code>.'
-            f'<code>escalating_classes</code> &mdash; decided before the run, not chosen after '
-            f'seeing the data. <b>MEGARes carries no organism column</b>, so every gene below is '
-            f'co-detected <i>in the sample</i> and attributed to nothing. A class with no gene is '
-            f'as informative as one with: it is the agent still on the table.</p>'
+                     f'<td>{chip(g["verdict"])} <span class="tiny">{call}</span></td>'
+                     f'{host_rank_cell(t, g)}</tr>')
+    return (f'<div class="ev"><h4>1 &middot; Which resistance classes would raise this organism, '
+            f'and is this organism the likely carrier</h4>'
+            f'<p class="tiny">The classes are fixed per organism in <code>clinical_watchlist.'
+            f'escalating_classes</code> &mdash; decided before the run, not chosen after seeing '
+            f'the data. <b>MEGARes carries no organism column</b>, so every gene below is '
+            f'co-detected <i>in the swab</i> and attributed to nothing. A class with no gene is as '
+            f'informative as one with: it is the agent still on the table.</p>'
+            f'<p class="tiny"><b>Host rank</b> is the attribution column, and it is load-bearing. '
+            f'It ranks this organism against every other genus in this swab that '
+            f'<code>amr_host_hints</code> documents as a carrier of that gene, by read count. '
+            f'<b>Rank 1 on a CONFIRM gene is what promotes the swab verdict</b> at gate 8; a low '
+            f'rank is the reason the same gene reads as commensal carriage instead. It is also '
+            f'criterion {bec_badge("MR2")} in the ledger below. A rank is evidence about '
+            f'<i>attribution</i>, never proof of it &mdash; nothing short of read-level linkage '
+            f'or an isolate can settle which organism carries the gene.</p>'
             f'<table class="ev wide"><tr><th>Class</th><th>Status</th><th>Gene co-detected</th>'
-            f'<th class="num">Breadth</th><th class="num">Depth</th><th>Gene verdict</th></tr>'
+            f'<th class="num">Breadth</th><th class="num">Depth</th><th>Gene verdict</th>'
+            f'<th>Host rank in this swab</th></tr>'
             f'{rows}</table></div>')
 
 
@@ -564,7 +680,6 @@ def class_dots(d, t):
 def flagged_row(d, t, band, also=()):
     """One disclosure row: the summary is the ranking, the body is the three evidence blocks."""
     lg = ledger(d, t)
-    tally = collections.Counter(c['state'] for c in lg)
     sub = (E(t.get('watch_priority')) if t.get('tier') == 'W'
            else f'CDC Category {E(t["tier"])}' if (t.get('tier') or '-') != '-' else '')
     if also:
@@ -586,7 +701,8 @@ def flagged_row(d, t, band, also=()):
             f'<span class="fc"><span class="fl-l">Escalating classes</span>'
             f'<span class="fl-v">{class_dots(d, t)}</span></span>'
             f'<span class="fc"><span class="fl-l">Criteria</span>'
-            f'<span class="fl-v">{tally["met"]} met &middot; {tally["against"]} against</span></span>'
+            f'<span class="fl-v">{bec_badge(*strongest(lg)) if strongest(lg) else "&mdash;"}'
+            f' <span class="tiny">of {sum(1 for c in lg if c["state"] == "met")} fired</span></span></span>'
             f'<span class="ftri">&#9654;</span></summary>'
             f'<div class="flbody">{body}</div></details>')
 
@@ -1112,7 +1228,8 @@ table.kv.v th{padding-right:14px}
 .meta .tier{color:%(red)s;font-weight:700}
 .why{margin:9px 0 0;font-size:13px}
 .self{font-weight:700;background:#fff3cd;padding:0 3px;border-radius:3px}
-.ev{margin-top:11px;padding:10px 12px;background:%(light)s;border-radius:3px}
+.ev{margin-top:11px;padding:10px 12px;background:%(light)s;border-radius:3px;overflow-x:auto}
+/* the evidence tables are wide by design; they scroll inside .ev, never the page */
 .ev.inferred{background:#fbf7ef;border:1px dashed %(amber)s}
 table.ev{margin-top:6px;font-size:12px}
 table.ev th{text-align:left;font-weight:600;color:%(grey)s;border-bottom:1px solid #d6e0ea;
@@ -1183,7 +1300,24 @@ details.fl[open] .ftri{transform:rotate(90deg)}
 .cn{font-size:11.5px}
 .cdot{width:11px;height:11px;border-radius:3px;background:#AD6400}
 .cdot.off{background:transparent;border:1px solid #c8cfd6;color:#6D6D6D}
-td.code{font-weight:700;font-size:11px;white-space:nowrap;letter-spacing:.02em}
+td.code{white-space:nowrap}
+/* BEC badge. Contrast is checked in test_flagged_layer.py, not eyeballed. */
+.bec{display:inline-flex;align-items:center;gap:5px;font-weight:700;font-size:11px;
+  letter-spacing:.03em;padding:2px 7px 2px 5px;border-radius:4px;white-space:nowrap;
+  border-left:2px solid transparent}
+.bec .pips,.pipkey{font-size:8px;letter-spacing:.5px;line-height:1;opacity:.85}
+.pipkey{color:#333333}
+.bec.dR{background:#FBEAEA;color:#C02A2A;border-left-color:#C02A2A}
+.bec.dR.s4{background:#C02A2A;color:#fff;border-left-color:#7D1A1A}
+.bec.dL{background:#EAF5EE;color:#1E7A3C;border-left-color:#1E7A3C}
+.bec.dU{background:#F2F3F4;color:#5C5C5C;border-left-color:#8B8B8B}
+.bec.s1{border-left-width:2px}.bec.s2{border-left-width:4px}
+.bec.s3{border-left-width:6px}.bec.s4{border-left-width:8px}
+/* .off = tested and not satisfied, or never testable. It keeps its strength (that is a
+   property of the code) but must never out-shout a criterion that actually fired. */
+.bec.off{background:transparent;box-shadow:inset 0 0 0 1px currentColor}
+.bec.dR.s4.off{background:transparent;color:#C02A2A;border-left-color:#C02A2A}
+.bec.off .pips{opacity:.55}
 td.meas{font-size:12px}
 td.gate{color:#6D6D6D;font-size:11px}
 .met{color:#333333}
@@ -1234,24 +1368,12 @@ a.deep{color:#00539B;display:inline-block;min-height:24px;line-height:24px}
 
 /* -- per-sample report: the verdict is the headline ------------------------- */
 .svhero{background:%(light)s;border-bottom:1px solid #dbe3ec;padding:20px 0 22px}
-.svwrap{max-width:1180px;margin:0 auto;padding:0 26px;display:grid;
-  grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:34px;align-items:start}
+.svwrap{max-width:1180px;margin:0 auto;padding:0 26px}
 .svmain{display:flex;gap:16px;align-items:flex-start}
 .svchip{color:#fff;font-weight:700;font-size:15px;letter-spacing:.06em;padding:9px 16px;
   border-radius:6px;white-space:nowrap;flex:none}
 .svtext{font-size:12.5px;color:%(ink)s;line-height:1.6}
 .svtext ul{margin:7px 0 0;padding-left:17px}
-.svbreak{border-left:1px solid #dbe3ec;padding-left:26px}
-.svbh{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:%(grey)s;
-  margin-bottom:9px}
-.svbh b{color:%(ink)s}
-.svcells{display:flex;gap:6px}
-.svcell{flex:1;min-width:0;border:1px solid #dbe3ec;border-radius:5px;background:#fff;
-  padding:7px 9px 8px;border-top:3px solid var(--c)}
-.svcell.mine{background:#fff;border-color:var(--c);box-shadow:0 0 0 2px var(--c) inset}
-.svn{display:block;font-size:19px;font-weight:600;line-height:1;color:%(ink)s}
-.svl{display:block;font-size:9.5px;letter-spacing:.03em;color:%(grey)s;margin-top:4px}
-.svcell.mine .svl{color:%(ink)s;font-weight:600}
 .nc{color:%(grey)s;font-style:italic}
 header .nc{color:#B9CCE0}
 details.cohort{border:1px solid #dde3ea;border-radius:7px;background:#fbfcfd;margin:0 0 16px}
@@ -1262,8 +1384,6 @@ details.cohort > summary:focus-visible{outline:2px solid %(blue)s;outline-offset
 .cfp{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:%(grey)s}
 .cid{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;color:%(ink)s}
 .cohort.none{padding:11px 14px;font-size:12.5px;color:%(ink)s}
-@media (max-width:900px){.svwrap{grid-template-columns:1fr;gap:20px}
-  .svbreak{border-left:0;padding-left:0;border-top:1px solid #dbe3ec;padding-top:16px}}
 """ % C
 
 JS = """
@@ -1312,27 +1432,12 @@ def site_line(sid, meta):
     return ' &middot; '.join(bits)
 
 
-def cohort_strip(reg, sid, this_verdict):
-    """Where this swab sits among every swab analysed so far.
-
-    The dashboard will carry this breakdown across the whole programme; each report carries it
-    so the reader can see whether one INVESTIGATE is the exception or the rule.
-    """
-    seen = {s: r.get('verdict') for s, r in reg['samples'].items()}
-    seen[sid] = this_verdict
-    counts = collections.Counter(seen.values())
-    tot = sum(counts.values())
-    cells = ''
-    for v in SV_ORDER:
-        n = counts.get(v, 0)
-        mine = ' mine' if v == this_verdict else ''
-        cells += (f'<span class="svcell{mine}" style="--c:{_sv_col(v)}">'
-                  f'<span class="svn">{n}</span>'
-                  f'<span class="svl">{E(v)}</span></span>')
-    return (f'<div class="svbreak"><div class="svbh">Sample verdicts across all '
-            f'<b>{tot}</b> analysed swab{"s" if tot != 1 else ""}'
-            f'<span class="tiny"> &mdash; this swab is the highlighted one</span></div>'
-            f'<div class="svcells">{cells}</div></div>')
+# A per-sample report is INDEPENDENT: it answers "what about this swab", and nothing else.
+# An earlier draft carried a verdict breakdown across every analysed swab in the hero. That is a
+# programme-level statistic - it changes whenever any other sample is added, which would make this
+# report's headline drift without a single figure about this swab changing. It belongs to the
+# managing dashboard. What stays is `cohort_block`: the named comparator set, because gate 8
+# genuinely computed this swab's enrichment against it and an unnamed baseline is not auditable.
 
 
 def cohort_block(reg, cids, cfp, meta):
@@ -1374,12 +1479,16 @@ def build_one(sample, reg, meta, fp, outdir=None):
     sv, sv_why = d['verdict']
     reasons = ''.join(f'<li>{E(r)}</li>' for r in sv_why[:5]) or '<li>Nothing above threshold.</li>'
 
-    tabs = [('qc', 'QC'), ('sp', 'Flaggable species'), ('amr', 'Resistance genes'),
-            ('me', 'Method &amp; verification')]
+    # The flagged-species cover sheet is the first tab, not a band above the tabs. Everything
+    # below it is the original triage output - ~50k words of evidence that must remain reachable
+    # and must not be the first thing on the page.
+    tabs = [('fl', 'Flagged species'), ('qc', 'QC &amp; depth'), ('sp', 'All taxa'),
+            ('amr', 'Resistance genes'), ('me', 'Method &amp; verification')]
     tb = ''.join(f'<button data-t="{t}" onclick="showTab(\'{E(sid)}\',\'{t}\')" '
                  f'aria-selected="{str(j == 0).lower()}">{lbl}</button>'
                  for j, (t, lbl) in enumerate(tabs))
-    body = {'qc': qc_tab(d), 'sp': species_tab(d), 'amr': amr_tab(d), 'me': method_tab(d, cmd, fp)}
+    body = {'fl': flagged_section([d]), 'qc': qc_tab(d), 'sp': species_tab(d),
+            'amr': amr_tab(d), 'me': method_tab(d, cmd, fp)}
     tp = ''.join(f'<section class="tabp" data-t="{t}"{"" if j == 0 else " hidden"}>{body[t]}</section>'
                  for j, (t, lbl) in enumerate(tabs))
     counts = {v: sum(1 for t in d['taxa'] if t['verdict'] == v) for v in VERDICT}
@@ -1401,9 +1510,7 @@ analysed {E(stamp)} &nbsp;·&nbsp; rules {E(fp)} &nbsp;·&nbsp; cohort {E(cfp)}
     threat-list agent with its marker present gives ESCALATE; a threat-list or watchlist organism
     at CONFIRM, or a high-consequence acquired gene, gives INVESTIGATE.
     <ul class="plain">{reasons}</ul></div></div>
-  {cohort_strip(reg, sid, sv)}
 </div></section>
-{flagged_section([d])}
 <div class="panel" data-s="{E(sid)}"><div class="tabs">{tb}</div><main>
 <p class="blurb">{d["classified"]:,} classified reads &nbsp;·&nbsp;
 {head or "no taxon above NO ACTION"}</p>
@@ -1416,10 +1523,22 @@ culture with AST. Reproduce with <code>{E(cmd)}</code> &mdash; note that the coh
 if the registry has grown since {E(stamp)}.</footer>
 <script>{JS}</script></body></html>'''
 
-    out = os.path.join(outdir or os.path.join(ROOT, 'analysis'), f'{sid}_report.html')
-    with open(out, 'w', encoding='utf-8') as fh:
+    base = os.path.join(outdir or os.path.join(ROOT, 'analysis'), sid)
+    with open(base + '_report.html', 'w', encoding='utf-8') as fh:
         fh.write(doc)
-    return out, d, cids
+
+    # The same evidence the HTML renders, in the shape the dashboard database will ingest. It is
+    # written here rather than scraped back out of the HTML so that the report and the record can
+    # never disagree, and so the ~50k words of detail can be condensed on screen without being
+    # lost. Ledger codes are stored per taxon: a future longitudinal query wants "every swab where
+    # DR1 fired", and recomputing that needs the whole cascade.
+    rec = {'sample': sid, 'verdict': sv, 'reasons': sv_why, 'analysed_at': stamp,
+           'classified': d['classified'], 'rules_fp': fp, 'cohort_fp': cfp, 'cohort': cids,
+           'site': meta.get(sid, {}), 'bec_version': 1,
+           'taxa': [dict(t, ledger=ledger(d, t)) for t in d['taxa']], 'genes': d['genes']}
+    with open(base + '_report.json', 'w', encoding='utf-8') as fh:
+        json.dump(rec, fh, indent=1, default=str)
+    return base + '_report.html', d, cids
 
 
 def build_per_sample(samples, outdir=None):
