@@ -1563,17 +1563,18 @@ def build_per_sample(samples, outdir=None, cohort=None):
         g = triage.load_report(s)
         _, classified = triage.gate_integrity(s, g)
         # cached: pass 2 needs the same counts, and a PFI report is ~7 MB to parse
-        seen[sid] = (classified, SR.loads_from_report(g))
+        seen[sid] = (classified, SR.loads_from_report(g), triage.taxon_names(g))
         prior = reg['samples'].get(sid, {})
         SR.record(reg, sid, classified, seen[sid][1], prior.get('verdict'), fp,
-                  prior.get('cohort', []))
+                  prior.get('cohort', []), names=seen[sid][2])
     SR.save(reg)
 
     out = []                                                     # pass 2 - render
     for s in samples:
         path, d, cids = build_one(s, reg, meta, fp, outdir)
         sv = d['verdict'][0]
-        SR.record(reg, d['id'], seen[d['id']][0], seen[d['id']][1], sv, fp, cids)
+        SR.record(reg, d['id'], seen[d['id']][0], seen[d['id']][1], sv, fp, cids,
+                  names=seen[d['id']][2])
         out.append((path, d['id'], sv, len(cids)))
     SR.save(reg)
     return out

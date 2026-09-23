@@ -81,18 +81,64 @@ def report_path(sample):
     return os.path.join(ROOT, f'{sample}_en.html')
 
 
+def fastq_root(sample):
+    """The directory holding this sample's FASTQs, or None.
+
+    The optional gates read `<dir>/removehost.DNA_1.fq.gz` and
+    `<dir>/ExtractRead_DNA/Species/<Name>/<Name>_1.fq.gz`, and that directory is the PFI result
+    folder. It used to be built as ROOT/<the raw argument>, which only worked when the argument
+    happened to be a bare stem: `--with-fastq WBM156_en.html` looked inside
+    ROOT/WBM156_en.html/ and found nothing, then reported the reads as missing rather than as
+    mislocated. Resolve it from whatever form the argument took.
+    """
+    cands = []
+    if os.path.isdir(sample):
+        cands.append(sample)
+    sid = sample_id(sample)
+    d = os.path.dirname(os.path.abspath(sample)) if os.sep in sample else ROOT
+    cands += [os.path.join(d, sid), os.path.join(ROOT, sid)]
+    for c in cands:
+        if os.path.isdir(c):
+            return c
+    return None
+
+
+def _is_folder_input(path):
+    import pfi_folder
+    return pfi_folder.is_pfi_folder(path)
+
+
 def sample_id(sample):
-    """Display and filename stem for a sample argument, path or bare stem alike."""
-    b = os.path.basename(sample)
+    """Display and filename stem for a sample argument, path, folder or bare stem alike."""
+    b = os.path.basename(os.path.normpath(sample))
     for suf in ('_en.html', '_en.htm', '.html', '.htm'):
         if b.endswith(suf):
             return b[:-len(suf)]
-    return sample.replace('/', '_')
+    # `b`, not `sample`: a folder argument arrives as "WBM156/" and the old fallback returned
+    # "WBM156_", which no longer matched its own registry entry - so the swab was compared against
+    # a cohort that still contained itself.
+    return b or sample.replace('/', '_')
+
+
+def load_folder_or_html(sample):
+    """Alias: load_report already accepts either. Named for the selftest's benefit."""
+    return load_report(sample)
 
 
 def load_report(sample):
-    """Pull the globalData object literal out of the Vue SPA by brace matching."""
+    """Pull the globalData object literal out of the Vue SPA by brace matching.
+
+    A PFI result FOLDER is accepted in place of the page: analysis/pfi_folder.py rebuilds the same
+    object from the XLSX tables PFI writes beside the report. Verified to produce identical verdicts
+    on all five HTX swabs. The HTML stays the documented contract; the folder is the route that does
+    not depend on PFI's Vue template surviving a version bump.
+    """
+    import pfi_folder
+    if pfi_folder.is_pfi_folder(sample):
+        return pfi_folder.load_folder(sample)
     path = report_path(sample)
+    if os.path.isdir(path) and pfi_folder.is_pfi_folder(path):
+        return pfi_folder.load_folder(path)
     if not os.path.exists(path):
         # Name the path actually tried. The old failure surfaced as the bare OSError for
         # '/data/WBM*_en.html_en.html' - the _en.html fallback stapled onto an unexpanded glob -
@@ -135,8 +181,12 @@ def gate_integrity(sample, g):
     # default: a report arriving without its reads is the normal case this engine is built for, and
     # saying so on every run would train the reader to skip the integrity list.
     if WITH_FASTQ:
-        paths = [os.path.join(ROOT, sample, f'{kind}.DNA_{mate}.fq.gz')
-                 for mate in (1, 2) for kind in ('unclassify', 'removehost')]
+        root = fastq_root(sample)
+        paths = [os.path.join(root, f'{kind}.DNA_{mate}.fq.gz')
+                 for mate in (1, 2) for kind in ('unclassify', 'removehost')] if root else []
+        if not root:
+            problems.append(f'--with-fastq requested but no result folder found for '
+                            f'{sample_id(sample)} - the FASTQ-only gates did not run')
         if not any(os.path.exists(p) for p in paths):
             problems.append('--with-fastq requested but no FASTQs found - the FASTQ-only gates did '
                             'not run; verdicts rest on the report tables alone')
@@ -168,8 +218,11 @@ def unique_fraction(sample, taxon):
     --with-fastq was given AND the reads are on disk."""
     if not WITH_FASTQ:
         return None, None
+    root = fastq_root(sample)
+    if not root:
+        return None, None
     d = taxon.replace(' ', '_').replace('/', '_')
-    path = os.path.join(ROOT, sample, 'ExtractRead_DNA', 'Species', d, f'{d}_1.fq.gz')
+    path = os.path.join(root, 'ExtractRead_DNA', 'Species', d, f'{d}_1.fq.gz')
     if not os.path.exists(path):
         return None, None
     seen, n = set(), 0
@@ -177,22 +230,50 @@ def unique_fraction(sample, taxon):
         for i, line in enumerate(fh):
             if i % 4 != 1:
                 continue
-            n += 1
-            if n > TH['unique_probe_reads']:
-                break
+            if n >= TH['unique_probe_reads']:
+                break                  # count and collect the same reads: n was incremented first,
+            n += 1                     # so the denominator used to be one larger than `seen` could be
             seen.add(line.strip())
     return (len(seen) / n if n else None), n
 
 
 # ---------------------------------------------------------------- gate 8: cross-sample load
 
+def taxon_key(row):
+    """The join key for one species row: the NCBI taxid.
+
+    Keyed by name, an enrichment silently breaks the day a genus moves. PFIDB v5 spells one
+    organism `[Candida] auris`, current NCBI says `Candidozyma auris`, and this very corpus has the
+    rule file saying `Mycobacterium abscessus` while PFI reports `Mycobacteroides abscessus` - one
+    taxid, several strings. A name-keyed baseline loses the whole history of a renamed organism and
+    `enrichment` then returns inf, which the report renders as "detected only in this sample" - the
+    strongest claim the engine makes, manufactured by a database upgrade.
+
+    A row with no Taxid falls back to its name, prefixed so the two key spaces can never collide.
+    Every row in all 14 pilot reports carries a taxid; the fallback exists so a report shape that
+    omits the column degrades to the old behaviour instead of dropping the organism.
+    """
+    tid = str(row.get('Taxid', '') or '').strip()
+    return tid if tid else 'name:' + row['Scientific Name']
+
+
+def taxon_names(g):
+    """{key: display name} for one report. The registry stores this so a taxid-keyed baseline is
+    still readable by a human opening the JSON."""
+    return {taxon_key(r): r['Scientific Name']
+            for r in g['indentification_DNA']['speciesData']['data']}
+
+
 def loads_by_taxon(reports, classified):
     """Depth-normalised load: real reads per million classified reads, per taxon per sample.
-    Normalising is what makes WBM156 (622k classified) comparable to WBM232 (2.59M)."""
+    Normalising is what makes WBM156 (622k classified) comparable to WBM232 (2.59M).
+
+    Keyed by taxon_key, i.e. taxid - see there for why a name will not do.
+    """
     out = collections.defaultdict(dict)
     for s, g in reports.items():
         for r in g['indentification_DNA']['speciesData']['data']:
-            out[r['Scientific Name']][s] = int(r['Real Read']) / classified[s] * 1e6
+            out[taxon_key(r)][s] = int(r['Real Read']) / classified[s] * 1e6
     return out
 
 
@@ -254,21 +335,47 @@ def read_length(g):
 def marker_present(g, marker, taxon=None):
     """Search the VFDB table for a marker's pattern. Returns (found, evidence).
 
-    `taxon` restricts the search to rows whose VFDB reference strain shares the taxon's genus, and
-    it matters more than it looks. VFDB names Type VI secretion components `icmF/tssM`,
-    `dotU/tssL`, `vasK/icmF` — homologues of the Coxiella Dot/Icm T4BSS carried by ordinary
-    Pseudomonas and Acinetobacter. Unrestricted, a Coxiella marker would have fired on three of the
-    five HTX swabs, on genes belonging to organisms that are not Coxiella.
+    `taxon` restricts the search to rows whose VFDB reference organism is the SAME SPECIES, and it
+    matters more than it looks.
+
+    Genus was not enough. The pXO2 pattern matches the anthrax capsule operon capBCADE - and
+    *Bacillus subtilis* and *B. licheniformis* carry a homologous poly-gamma-glutamate capsule that
+    VFDB also names capA/capB/capC/dep-capD. Those rows are in six of the fourteen delivered
+    reports, B. subtilis being a ZymoBIOMICS component and an ordinary soil organism. Under a genus
+    filter, any sample that called *B. anthracis* over the read floor alongside a common soil
+    bacillus would have reported MARKER PRESENT and returned ESCALATE - a false anthrax alarm off
+    B. subtilis. Nothing escalated in this corpus only because B. anthracis was never called.
+
+    The same reasoning caught the earlier Coxiella case: VFDB names Type VI secretion components
+    `icmF/tssM`, `dotU/tssL`, `vasK/icmF`, homologues of the Coxiella Dot/Icm T4BSS carried by
+    ordinary Pseudomonas and Acinetobacter.
+
+    Only the `Virulence Factor` field is searched. The row used to be serialised whole, so a match
+    could land in `VF Protein`, which holds accessions like `VFG004763(gb|WP_011274497)` and can
+    never carry a gene name.
     """
     pat = re.compile(RULES['marker_patterns'].get(marker, re.escape(marker)), re.I)
-    genus = taxon.split(' ')[0].lower() if taxon else None
+    # Species, not genus. VFDB writes the reference strain after the binomial
+    # ("Mycobacterium tuberculosis H37Rv", "Salmonella enterica serovar Typhi CT18"), so a prefix
+    # test admits the strains of this species and excludes its congeners.
+    want = ' '.join(taxon.split(' ')[:2]).lower() if taxon else None
     vf = g.get('virulence', {}).get('DNA', {})
     rows = vf.get('data', []) if isinstance(vf, dict) else []
     for r in rows:
-        if genus and str(r.get('Pathogen', '')).split(' ')[0].lower() != genus:
+        if want and not str(r.get('Pathogen', '')).lower().startswith(want):
             continue
-        if pat.search(json.dumps(r)):
-            return True, str(r.get('Virulence Factor') or r.get('Gene') or '?')[:40]
+        if not pat.search(str(r.get('Virulence Factor') or r.get('Gene') or '')):
+            continue
+        # A row is not a marker until it is covered. Absent the floor, the B. anthracis capB row at
+        # 2.73% breadth / 0.20x depth in every ZymoBIOMICS standard - cross-mapping off the
+        # B. subtilis in the mix - was a MARKER PRESENT away from ESCALATE.
+        cov = str(r.get('Coverage(%)', '')).strip().rstrip('%')
+        try:
+            if cov and float(cov) < TH['marker_breadth_floor']:
+                continue
+        except ValueError:
+            pass                       # unparseable column: treat as absent, not as a negative
+        return True, str(r.get('Virulence Factor') or r.get('Gene') or '?')[:40]
     return False, ''
 
 
@@ -467,8 +574,12 @@ def genus_amr_context(name, genes, present):
         h = hints.get(x['group'])
         if not h or not any(genus.startswith(t) or t.startswith(genus) for t in h['taxa']):
             continue
+        # `or n == t` matches watchlist_escalation. Without it a genus-level row ("Acinetobacter"
+        # with no epithet) counted as a host for escalation but was invisible in the pool shown to
+        # the analyst, and its self_rank came back None - which in sample_verdict means it can
+        # never be the organism leading a gene. Two functions, one question, one answer.
         cands = sorted(((n, c) for n, c in present.items()
-                        if any(n.startswith(t + ' ') for t in h['taxa']) and c),
+                        if any(n.startswith(t + ' ') or n == t for t in h['taxa']) and c),
                        key=lambda kv: -kv[1])
         top, top_reads = cands[0] if cands else (name, mine)
         rank = next((i + 1 for i, (n, _c) in enumerate(cands) if n == name), None)
@@ -551,14 +662,25 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
     threat_ids = {v['taxid']: v for v in threat.values()
                   if isinstance(v, dict) and v.get('taxid')}
     watch_ids = {v['taxid']: v for v in watch.values() if v.get('taxid')}
-    genes = list(genes) if not isinstance(genes, set) else []
+    # A set here used to become [], triaging the sample as though no resistance gene
+    # existed - no error, no warning, and no caller that could produce it. Fail instead.
+    if isinstance(genes, (set, frozenset)):
+        raise TypeError('triage_taxa expects an ordered sequence of gene dicts, got a set')
+    genes = list(genes)
     present = {r['Scientific Name']: int(r['Real Read'])
                for r in g['indentification_DNA']['speciesData']['data']}
+    # Gate 9 joins on taxid. `present` stays keyed by name because the AMR host-pool code reads it
+    # by genus prefix, which a number cannot carry.
+    present_ids = {taxon_key(r): int(r['Real Read'])
+                   for r in g['indentification_DNA']['speciesData']['data']}
+    nn_ids = {k: v for k, v in RULES.get('near_neighbour_taxids', {}).items()
+              if not k.startswith('_')}
 
     for r in g['indentification_DNA']['speciesData']['data']:
         name, real = r['Scientific Name'], int(r['Real Read'])
         est = int(r['Estimate Read'])
         taxid = str(r.get('Taxid', '')).strip()
+        key = taxon_key(r)          # what gate 8 joins on: taxid, never the name
         t = threat_ids.get(taxid) or threat.get(name)
         w0 = (watch_ids.get(taxid) or watch.get(name)) if not t else None
         why = []
@@ -590,9 +712,23 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
         w = w0
         if w:
             if real < TH['min_real_reads']:
+                # Not `continue`. A threat-list agent under the floor gets an explicit NO_ACTION row
+                # carrying its read count; a watchlist organism used to get no row at all, so
+                # A. baumannii at 36 reads in WBM156 - WHO critical - left no trace on the page.
+                # Too few reads to CALL is a result about the organism; it is not a reason to
+                # withhold the observation. See the note above context_line: silence is the failure
+                # mode this project exists to avoid.
+                results.append({**base, 'tier': 'W', 'verdict': 'NO_ACTION',
+                                'watch_priority': w['priority'], 'watch_note': w['note'],
+                                'why': '; '.join(why + [
+                                    f'{w["priority"]} priority pathogen',
+                                    f'{real} reads, below the {TH["min_real_reads"]}-read floor - '
+                                    f'detected and recorded, not called. Too few reads to test '
+                                    f'enrichment or attribute resistance, so no verdict above '
+                                    f'NO_ACTION is supportable'])})
                 continue
             uf, _n = unique_fraction(sample, name)
-            fold = enrichment(loads, name, sample) if comparators else None
+            fold = enrichment(loads, key, sample) if comparators else None
             base['unique'], base['fold'] = uf, fold
             why.append(f'{w["priority"]} priority pathogen')
             if uf is not None and uf < TH['unique_fraction_floor']:
@@ -647,7 +783,7 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
             # Non-threat taxa are only worth reporting when site-specific and substantial.
             if real < TH['min_real_reads']:
                 continue
-            fold = enrichment(loads, name, sample) if comparators else None
+            fold = enrichment(loads, key, sample) if comparators else None
             genus = name.split(' ')[0]
             if fold is not None:
                 if fold < TH['enrichment_fold']:
@@ -690,8 +826,12 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
 
         # gate 9: near-neighbour co-detection at comparable depth undermines the call.
         for nb in t['near_neighbours']:
-            if present.get(nb, 0) >= real:
-                why.append(f'near-neighbour {nb} at {present[nb]} reads >= this taxon - '
+            ids = nn_ids.get(nb)
+            # Taxid where the rule file has one; the name only for an organism PFI_DB cannot call
+            # at all, where neither join can ever fire. See near_neighbour_taxids in the rule file.
+            got = sum(present_ids.get(i, 0) for i in ids) if ids else present.get(nb, 0)
+            if got >= real:
+                why.append(f'near-neighbour {nb} at {got} reads >= this taxon - '
                            'cross-mapping cannot be excluded')
                 verdict = 'NO_ACTION' if verdict == 'CONFIRM' else verdict
 
@@ -851,14 +991,37 @@ def sample_verdict(taxa, genes):
 
 # ---------------------------------------------------------------- driver
 
-def run(samples, comparators=None):
+def registry_loads(cohort, exclude_ids):
+    """Depth-normalised loads for every registry sample except the ones in this run.
+
+    The TSV path used to compare a swab only against the others named on the command line, while
+    the HTML path compared it against the whole registry - so `triage.py WBM156` said NO ACTION and
+    WBM156_report.html said MONITOR for the same swab, with nothing on either output saying which
+    baseline it used. Same registry, same answer, both paths.
+    """
+    import sample_registry as SR                # local: sample_registry imports this module
+    reg = SR.load(SR.registry_path(cohort))
+    coh = SR.cohort_loads(reg, '')              # '' excludes nothing; drop this run's own below
+    for per in coh.values():
+        for sid in exclude_ids:
+            per.pop(sid, None)
+    return {t: per for t, per in coh.items() if per}
+
+
+def run(samples, comparators=None, cohort=None):
     reports = {s: load_report(s) for s in samples}
     classified, integrity = {}, {}
     for s, g in reports.items():
         integrity[s], classified[s] = gate_integrity(s, g)
     loads = loads_by_taxon(reports, classified)
+    coh = {} if comparators is False else registry_loads(cohort, {sample_id(s) for s in samples})
+    for taxon, per in coh.items():
+        loads[taxon].update(per)
+    if coh:
+        print(f'  [gate 8] {len(set().union(*(p for p in coh.values())))} prior sample(s) from the '
+              f'registry joined the comparison set')
     if comparators is None:
-        comparators = len(samples) > 1
+        comparators = len(samples) > 1 or bool(coh)
     if not comparators:
         why = 'single sample' if len(samples) == 1 else 'samples declared independent (--independent)'
         print(f'  [gate 8] {why} - cross-sample enrichment is inert; non-threat taxa are '
@@ -1006,6 +1169,25 @@ def selftest():
     assert renamed and renamed[0]['verdict'] != 'NO_ACTION', renamed
     assert 'WHO critical' in renamed[0]['why'], renamed[0]['why']
 
+    # A listed organism under the read floor must still produce a row. It used to be dropped
+    # entirely, so A. baumannii at 36 reads left no trace on the page it belonged on.
+    subfloor = triage_taxa('selftest', {'indentification_DNA': {'speciesData': {'data': [
+        {'Taxid': '470', 'Scientific Name': 'Acinetobacter baumannii', 'Real Read': '36',
+         'Estimate Read': '36'}]}}}, [], {}, comparators=False)
+    ab = next((r for r in subfloor if r['taxon'] == 'Acinetobacter baumannii'), None)
+    assert ab is not None, 'a listed organism under the floor must still get a row'
+    assert ab['tier'] == 'W' and ab['verdict'] == 'NO_ACTION', ab
+    assert 'below the 50-read floor' in ab['why'] and ab['real'] == 36, ab['why']
+
+    # A bare stem beats a directory of the same name: WBM156/ is the PFI output folder, and
+    # resolving to it turned the documented `triage.py WBM156` into a crash.
+    if os.path.isdir(os.path.join(ROOT, 'WBM156')):
+        assert report_path('WBM156').endswith('WBM156_en.html'), report_path('WBM156')
+
+    # registry_loads must never let a sample compare against itself.
+    assert registry_loads(None, set(SAMPLES)) == {} or all(
+        not (set(per) & set(SAMPLES)) for per in registry_loads(None, set(SAMPLES)).values())
+
     # --- sample-wide AMR evidence, pulled into a species row ------------------------------------
     # The gene is in the sample; the genus is a documented host; a congener is far more abundant.
     # All three facts belong in the organism's row, and none of them may move its verdict.
@@ -1029,6 +1211,110 @@ def selftest():
     assert row['verdict'] == 'NOT_TESTED' and 'seb NOT ASSESSABLE' in row['why'], row
     assert 'AMR CONTEXT' in row['why'] and 'BLAZ' in row['why'], row['why']
     assert 'none of them changed this verdict' in row['why'], row['why']
+
+    # A PFI result folder must be interchangeable with its HTML report - same tables, same
+    # verdicts. Identity is checked on the parsed blocks, which is what every gate reads.
+    import pfi_folder
+    _d = os.path.join(ROOT, 'WBM156')
+    if pfi_folder.is_pfi_folder(_d):
+        def _norm(rows):
+            # Compare numerically. The page carries Depth as the display string "10.90"; the
+            # spreadsheet carries the number 10.9. Every gate reads it through float(), so the two
+            # are the same measurement, and an exact string compare would fail on formatting alone.
+            out = []
+            for r in rows:
+                row = {}
+                for c, v in r.items():
+                    if c.startswith('action'):       # HTML-only links into the PFI web app
+                        continue
+                    try:
+                        row[c] = float(str(v).rstrip('%'))
+                    except (TypeError, ValueError):
+                        row[c] = v
+                out.append(row)
+            return out
+
+        _h, _f = load_report(os.path.join(ROOT, 'WBM156_en.html')), load_folder_or_html(_d)
+        for _k, _path in (('indentification_DNA', ('speciesData', 'data')),
+                          ('drugResistance', ('DNA', 'data')),
+                          ('virulence', ('DNA', 'data'))):
+            _hv, _fv = _h[_k], _f[_k]
+            for _step in _path:
+                _hv, _fv = _hv[_step], _fv[_step]
+            assert _norm(_hv) == _norm(_fv), f'folder and report disagree on {_k}'
+        assert _h['basicSummary']['readsQc']['data'][0] == _f['basicSummary']['readsQc']['data'][0]
+        assert sample_id('WBM156/') == sample_id('WBM156_en.html') == 'WBM156'
+        # The optional FASTQ gates must find the same result folder whatever form the argument
+        # took. Built as ROOT/<raw argument>, `--with-fastq WBM156_en.html` looked inside
+        # ROOT/WBM156_en.html/ and reported the reads missing rather than mislocated.
+        _want = os.path.realpath(_d)
+        for _a in ('WBM156', 'WBM156/', './WBM156', 'WBM156_en.html',
+                   os.path.join(ROOT, 'WBM156_en.html')):
+            _got = fastq_root(_a if os.sep in _a or os.path.exists(_a) else _a)
+            assert _got and os.path.realpath(_got) == _want, (_a, _got)
+        assert fastq_root('NoSuchSampleXYZ') is None
+        # ...and a bare folder name relative to a DIFFERENT working directory, which is the only
+        # case the ROOT fallback cannot reach - a container runs from the mount, not from ROOT.
+        import tempfile
+        _cwd = os.getcwd()
+        try:
+            _tmp = tempfile.mkdtemp()
+            os.makedirs(os.path.join(_tmp, 'WBMTEST'))
+            os.chdir(_tmp)
+            assert os.path.realpath(fastq_root('WBMTEST')) == os.path.realpath(
+                os.path.join(_tmp, 'WBMTEST')), fastq_root('WBMTEST')
+        finally:
+            os.chdir(_cwd)
+
+    # --- finding 6: the marker gate is what produces ESCALATE, so it gets the tightest checks --
+    def _vf(vfactor, pathogen, cov='95.0%'):
+        return {'showRNA': False, 'virulence': {'DNA': {'data': [
+            {'Virulence Factor': vfactor, 'Pathogen': pathogen, 'Coverage(%)': cov,
+             'VF Protein': 'VFG004763(gb|WP_011274497)', 'Depth': '9.9'}]}}}
+
+    # Anchored: `pag` must not match inside spaG / upaG, which is what it did across the corpus.
+    assert marker_present(_vf('pagA', 'Bacillus anthracis'), 'pXO1', 'Bacillus anthracis')[0]
+    assert not marker_present(_vf('spaG', 'Bacillus anthracis'), 'pXO1', 'Bacillus anthracis')[0]
+    assert not marker_present(_vf('upaG/ehaG', 'Bacillus anthracis'), 'pXO1', 'Bacillus anthracis')[0]
+    # Species, not genus: B. subtilis carries a homologous capA-D poly-gamma-glutamate capsule.
+    assert marker_present(_vf('capB', 'Bacillus anthracis str. Ames'), 'pXO2', 'Bacillus anthracis')[0]
+    assert not marker_present(_vf('capB', 'Bacillus subtilis subsp. subtilis str. 168'),
+                              'pXO2', 'Bacillus anthracis')[0]
+    # Covered, not merely present: the real Zymo row is capB at 2.73%.
+    assert not marker_present(_vf('capB', 'Bacillus anthracis', '2.73%'),
+                              'pXO2', 'Bacillus anthracis')[0]
+    # A report shape with no Coverage column must not turn a missing number into a negative.
+    bare = {'showRNA': False, 'virulence': {'DNA': {'data': [
+        {'Virulence Factor': 'capB', 'Pathogen': 'Bacillus anthracis'}]}}}
+    assert marker_present(bare, 'pXO2', 'Bacillus anthracis')[0]
+    # Only the gene-name field is searched: an accession can never be a marker.
+    acc = {'showRNA': False, 'virulence': {'DNA': {'data': [
+        {'Virulence Factor': 'xyz', 'Pathogen': 'Bacillus anthracis', 'Coverage(%)': '99%',
+         'VF Protein': 'VFG00capB(gb|WP_pagA)'}]}}}
+    assert not marker_present(acc, 'pXO2', 'Bacillus anthracis')[0]
+    assert not marker_present(acc, 'pXO1', 'Bacillus anthracis')[0]
+    # Every pattern must still be word-anchored.
+    import re as _re
+    loose = [k for k, v in RULES['marker_patterns'].items()
+             if not k.startswith('_') and '\\b' not in v and 'toxin' not in v]
+    assert not loose, f'unanchored marker pattern(s): {loose}'
+
+    # --- finding 7: a set must fail loudly, never silently drop every gene -------------------
+    try:
+        triage_taxa('s', {'indentification_DNA': {'speciesData': {'data': []}}}, {}, set(), False)
+        raise AssertionError('a set of genes must raise, not silently become []')
+    except TypeError:
+        pass
+
+    # --- finding 8: a genus-level row is a host in BOTH functions, or in neither -------------
+    _g = next((g for g, v in RULES['amr_host_hints'].items()
+               if g != '_comment' and v.get('taxa')), None)
+    if _g:
+        _t = RULES['amr_host_hints'][_g]['taxa'][0]
+        _gene = {'group': _g, 'allele': 'X', 'verdict': 'CONFIRM', 'class': 'acquired',
+                 'breadth': 99.0, 'depth': 9.0, 'why': 'acquired', 'drug_class': 'betalactams'}
+        _ctx = genus_amr_context(_t, [_gene], {_t: 500})      # bare genus, no epithet
+        assert _ctx and _ctx[0]['self_rank'] == 1, _ctx
 
     # --- gate 10a marker power -----------------------------------------------------------------
     vc = RULES['threat_list']['Vibrio cholerae']
@@ -1158,12 +1444,33 @@ def selftest():
     ntm = {'showRNA': False, 'virulence': {'DNA': {'data': [
                {'Virulence Factor': 'esxA', 'Pathogen': 'Mycobacterium tuberculosis H37Rv'}]}},
            'indentification_DNA': {'speciesData': {'data': [
-               {'Scientific Name': n, 'Taxid': '1', 'Real Read': '5000', 'Estimate Read': '5000',
+               # Real taxids: gate 9 joins on the number, so a placeholder here would test nothing.
+               {'Scientific Name': n, 'Taxid': tid, 'Real Read': '5000', 'Estimate Read': '5000',
                 'Abundance': '5%', 'Human Infection': 'Y'}
-               for n in ('Mycobacterium tuberculosis', 'Mycobacterium avium')]}}}
-    mtb = next(r for r in triage_taxa('s', ntm, {'Mycobacterium tuberculosis': {'s': 1.0}}, [], False)
+               for n, tid in (('Mycobacterium tuberculosis', '1773'),
+                              ('Mycobacterium avium', '1764'))]}}}
+    mtb = next(r for r in triage_taxa('s', ntm, {'1773': {'s': 1.0}}, [], False)
                if r['taxon'] == 'Mycobacterium tuberculosis')
     assert mtb['verdict'] == 'NO_ACTION' and 'near-neighbour' in mtb['why'], mtb['why']
+
+    # The join is on the taxid, not the string: PFI spells M. bovis "Mycobacterium tuberculosis
+    # variant bovis", so the old name match could never fire for it. Same fixture, that spelling.
+    bovis = {'showRNA': False, 'virulence': {'DNA': {'data': [
+                 {'Virulence Factor': 'esxA', 'Pathogen': 'Mycobacterium tuberculosis H37Rv'}]}},
+             'indentification_DNA': {'speciesData': {'data': [
+                 {'Scientific Name': n, 'Taxid': tid, 'Real Read': '5000', 'Estimate Read': '5000',
+                  'Abundance': '5%', 'Human Infection': 'Y'}
+                 for n, tid in (('Mycobacterium tuberculosis', '1773'),
+                                ('Mycobacterium tuberculosis variant bovis', '1765'))]}}}
+    mb = next(r for r in triage_taxa('s', bovis, {'1773': {'s': 1.0}}, [], False)
+              if r['taxon'] == 'Mycobacterium tuberculosis')
+    assert mb['verdict'] == 'NO_ACTION' and 'Mycobacterium bovis' in mb['why'], mb['why']
+
+    # Every near neighbour must carry a taxid, or be recorded as uncallable by PFI_DB on purpose.
+    nnt = {k: v for k, v in RULES['near_neighbour_taxids'].items() if not k.startswith('_')}
+    every = {n for v in tl.values() for n in v['near_neighbours']}
+    assert every == set(nnt), every ^ set(nnt)
+    assert [k for k, v in nnt.items() if not v] == ['Cryptosporidium meleagridis'], nnt
 
     # Only agents with genuinely unavailable markers may still have neither gate.
     neither = sorted(k for k, v in tl.items() if v['genome'] == 'DNA'
@@ -1237,7 +1544,14 @@ if __name__ == '__main__':
     args = [m for a in args
             for m in (sorted(glob.glob(os.path.join(a, '*_en.htm*'))) or
                       sorted(glob.glob(os.path.join(a, '*.htm*'))) or [a]
-                      if os.path.isdir(a) else [a])]
+                      # ...but a bare stem wins over a directory of the same name. The PFI output
+                      # directory WBM156/ sits beside WBM156_en.html, so `triage.py WBM156` - the
+                      # form this module's own docstring documents - was expanding to
+                      # WBM156/Classify.DNA.html, a different page with no globalData.
+                      # A PFI result folder is an INPUT, never a directory to glob inside: its
+                      # Classify.DNA.html is a different page, and pfi_folder reads the XLSX tables.
+                      if os.path.isdir(a) and not os.path.exists(report_path(a))
+                      and not _is_folder_input(a) else [a])]
     # --with-fastq: opt in to the gates that read outside the HTML report (gate 6, FASTQ integrity).
     # Off by default so the baseline output is reproducible by anyone holding only the report.
     WITH_FASTQ = '--with-fastq' in sys.argv
@@ -1298,7 +1612,7 @@ if __name__ == '__main__':
         # in one invocation has to be built and wired twice. Guarded on --outdir so interactive
         # `--html --out=x.html` in the repo still writes only the page it was asked for.
         if _od:
-            run(args or SAMPLES, comparators)
+            run(args or SAMPLES, comparators, cohort=_coh)
         import triage_report
         path, n = triage_report.build(args or SAMPLES, comparators=comparators,
                                       # abspath against the CWD, not ROOT. Run from the repo root
@@ -1312,4 +1626,4 @@ if __name__ == '__main__':
         print(f'{shown}: {n} sample(s), '
               f'{os.path.getsize(path)/1024:.0f} KB, self-contained')
     else:
-        run(args or SAMPLES, comparators)
+        run(args or SAMPLES, comparators, cohort=_coh)

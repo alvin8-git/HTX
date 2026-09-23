@@ -34,6 +34,7 @@ import datetime
 import hashlib
 import json
 import os
+import sys
 
 import triage
 
@@ -55,6 +56,11 @@ def registry_path(name=None):
     assert '/' not in name and '\\' not in name and name.strip(), f'cohort label, not a path: {name!r}'
     return os.path.join(triage.ROOT, 'analysis', f'sample_registry_{name}.json')
 METADATA = os.path.join(triage.ROOT, 'analysis', 'sample_metadata.tsv')
+
+# Registry format. v1 keyed `loads` by species name; v2 keys by taxid (triage.taxon_key). The two
+# cannot be pooled - a v1 baseline joined against a v2 sample matches nothing and every taxon reads
+# as "detected only in this sample". load() refuses a v1 file rather than silently mis-joining it.
+FORMAT = 2
 META_COLS = ['sample_id', 'site_id', 'site_label', 'collected_at', 'run_id']
 
 
@@ -65,12 +71,21 @@ def load(path=None):
     with open(path, encoding='utf-8') as fh:
         reg = json.load(fh)
     reg['path'] = path                 # so save() cannot write a cohort back to the wrong file
+    if reg.get('version', 1) < FORMAT:
+        raise SystemExit(
+            f'{path}: registry format v{reg.get("version", 1)}, this engine writes v{FORMAT}.\n'
+            f'v1 keyed taxa by species name, v2 keys them by taxid, and joining the two matches '
+            f'nothing - every taxon would read as "detected only in this sample".\n'
+            f'Migrate it:  python3 analysis/sample_registry.py --migrate <report>...  '
+            f'(add --cohort <name> for a non-default registry)')
     return reg
 
 
 def save(reg):
     path = reg.get('path') or REGISTRY
     reg['samples'] = dict(sorted(reg['samples'].items()))
+    if 'taxon_names' in reg:
+        reg['taxon_names'] = dict(sorted(reg['taxon_names'].items()))
     out = {k: v for k, v in reg.items() if k != 'path'}
     tmp = path + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as fh:
@@ -142,8 +157,15 @@ def fingerprint(reg, ids):
     return hashlib.sha256('|'.join(parts).encode()).hexdigest()[:6]
 
 
-def record(reg, sample_id, classified, loads, verdict, rules_fp, cohort):
-    """Write one sample's contribution to the baseline, plus what it was judged against."""
+def record(reg, sample_id, classified, loads, verdict, rules_fp, cohort, names=None):
+    """Write one sample's contribution to the baseline, plus what it was judged against.
+
+    `names` is {taxid: display name}, merged into one registry-wide map. Without it the stored
+    loads are a few thousand bare integers and nobody can audit the file by reading it.
+    """
+    reg['version'] = FORMAT
+    if names:
+        reg.setdefault('taxon_names', {}).update(names)
     reg['samples'][sample_id] = {
         'classified': int(classified),
         'verdict': verdict,
@@ -158,9 +180,79 @@ def record(reg, sample_id, classified, loads, verdict, rules_fp, cohort):
 
 
 def loads_from_report(g):
-    """Real reads per taxon straight off the PFI species table."""
-    return {r['Scientific Name']: int(r['Real Read'])
+    """Real reads per taxon straight off the PFI species table, keyed by taxid.
+
+    Keyed by triage.taxon_key, so a stored baseline survives a species rename. See that function.
+    """
+    return {triage.taxon_key(r): int(r['Real Read'])
             for r in g['indentification_DNA']['speciesData']['data']}
+
+
+def migrate(reg, name_to_key, names=None):
+    """Rekey a v1 (name-keyed) registry to v2 (taxid-keyed).
+
+    `name_to_key` comes from the PFI reports themselves, never from a lookup service: the join has
+    to reproduce exactly what the report said at the time, and an organism renamed twice would
+    otherwise be backfilled to today's taxid rather than the one its reads were counted under.
+
+    A name with no known taxid keeps its name as the key, prefixed `name:` the same way
+    triage.taxon_key does for a report with no Taxid column. Nothing is dropped and nothing is
+    guessed; the count of unmapped taxa is returned so the caller can say so out loud.
+    """
+    unmapped = set()
+    for rec in reg.get('samples', {}).values():
+        out = {}
+        for taxon, reads in rec.get('loads', {}).items():
+            if taxon.isdigit() or taxon.startswith('name:'):
+                out[taxon] = reads                       # already v2, or already a fallback key
+                continue
+            key = name_to_key.get(taxon)
+            if key is None:
+                unmapped.add(taxon)
+                key = 'name:' + taxon
+            # Two v1 names can collapse onto one taxid (a rename inside one cohort). Summing would
+            # invent reads; the larger count is the one the organism actually carried.
+            out[key] = max(out.get(key, 0), reads)
+        rec['loads'] = dict(sorted(out.items()))
+    reg['version'] = FORMAT
+    if names:
+        reg.setdefault('taxon_names', {}).update(names)
+    return unmapped
+
+
+def _migrate_cli(argv):
+    """python3 analysis/sample_registry.py --migrate <report>... [--cohort <name>]"""
+    cohort = None
+    if '--cohort' in argv:
+        i = argv.index('--cohort')
+        cohort = argv[i + 1] if i + 1 < len(argv) else None
+        argv = argv[:i] + argv[i + 2:]
+    reports = [a for a in argv if not a.startswith('--')]
+    if not reports:
+        raise SystemExit('--migrate needs the PFI reports the registry was built from: the '
+                         'name -> taxid map is read out of them, never guessed.')
+    name_to_key, names = {}, {}
+    for r in reports:
+        g = triage.load_report(r)
+        for row in g['indentification_DNA']['speciesData']['data']:
+            name_to_key[row['Scientific Name']] = triage.taxon_key(row)
+        names.update(triage.taxon_names(g))
+
+    path = registry_path(cohort)
+    with open(path, encoding='utf-8') as fh:
+        reg = json.load(fh)                      # raw read: load() refuses a v1 file
+    reg['path'] = path
+    before = reg.get('version', 1)
+    n_tax = len({t for r in reg.get('samples', {}).values() for t in r.get('loads', {})})
+    unmapped = migrate(reg, name_to_key, names)
+    save(reg)
+    after = len({t for r in reg['samples'].values() for t in r['loads']})
+    print(f'{os.path.relpath(path, triage.ROOT)}: v{before} -> v{FORMAT}, '
+          f'{len(reg["samples"])} sample(s), {n_tax} -> {after} distinct taxa')
+    if unmapped:
+        print(f'  {len(unmapped)} name(s) had no taxid in the supplied reports and kept their '
+              f'name as the key: {", ".join(sorted(unmapped)[:6])}'
+              + (' ...' if len(unmapped) > 6 else ''))
 
 
 def _selftest():
@@ -177,8 +269,26 @@ def _selftest():
     reg['samples']['A']['classified'] = 3_000_000
     assert fingerprint(reg, ['A']) != f1, 'depth changes the baseline, so it changes the id'
     assert fingerprint(reg, []) == 'none'
+    # v1 -> v2: a name-keyed baseline must rekey to taxids without inventing or losing reads.
+    v1 = {'version': 1, 'samples': {'X': {'classified': 1_000_000,
+                                          'loads': {'Mycobacterium abscessus': 700,
+                                                    'Nobody knows sp.': 5}}}}
+    un = migrate(v1, {'Mycobacterium abscessus': '36809'}, {'36809': 'Mycobacteroides abscessus'})
+    assert v1['version'] == FORMAT and un == {'Nobody knows sp.'}, (v1, un)
+    assert v1['samples']['X']['loads'] == {'36809': 700, 'name:Nobody knows sp.': 5}
+    assert v1['taxon_names']['36809'] == 'Mycobacteroides abscessus'
+    # ...and it is idempotent: a second pass must not re-prefix keys it already wrote.
+    assert migrate(v1, {}) == set() and v1['samples']['X']['loads'] == {
+        '36809': 700, 'name:Nobody knows sp.': 5}
+    # A rename that collapses two v1 names onto one taxid must not sum them into a fake count.
+    v1b = {'version': 1, 'samples': {'X': {'loads': {'Old name': 300, 'New name': 700}}}}
+    migrate(v1b, {'Old name': '99', 'New name': '99'})
+    assert v1b['samples']['X']['loads'] == {'99': 700}, v1b
     print('sample_registry selftest OK')
 
 
 if __name__ == '__main__':
-    _selftest()
+    if '--migrate' in sys.argv:
+        _migrate_cli(sys.argv[1:])
+    else:
+        _selftest()

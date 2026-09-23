@@ -14,7 +14,9 @@
     "escalation_host_share": 0.2,
     "_escalation_host_share_why": "Co-location alone was enough to escalate a watchlist organism to CONFIRM: the gene was in the sample and the genus was A documented host. That let Serratia marcescens (WBM185) escalate on a CTX-M whose host pool it holds 1.3% of - 77 organisms could carry it and Serratia was one of the smallest. Escalation now also requires the organism to be the MOST ABUNDANT documented host in the sample, or to hold at least this share of the pool. Below that, naming it is arbitrary among the candidates. Set 2026-08-12; A. baumannii in WBM232 holds 21% AND tops its pool, so the one operationally significant finding in the batch is unaffected.",
     "marker_power_min": 0.9,
-    "_marker_power_min_why": "Gate 10a is two-way: a confirmatory marker present raises ESCALATE, absent downgrades to NO_ACTION. The downgrade arm is only valid if the marker COULD have been seen. At 11 reads of V. cholerae (0.0004x genome coverage) the chance of a read landing on ctxA/ctxB is 0.3%, so 'ctxA/ctxB absent' was the expected outcome whether or not the organism was toxigenic - the test had no power and the engine reported it as evidence. Below this power the marker reverts to ONE-WAY (present still escalates, absent changes nothing) and the row is NOT_TESTED: 'marker not assessable at this coverage'. Set 2026-08-12 at 0.90."
+    "_marker_power_min_why": "Gate 10a is two-way: a confirmatory marker present raises ESCALATE, absent downgrades to NO_ACTION. The downgrade arm is only valid if the marker COULD have been seen. At 11 reads of V. cholerae (0.0004x genome coverage) the chance of a read landing on ctxA/ctxB is 0.3%, so 'ctxA/ctxB absent' was the expected outcome whether or not the organism was toxigenic - the test had no power and the engine reported it as evidence. Below this power the marker reverts to ONE-WAY (present still escalates, absent changes nothing) and the row is NOT_TESTED: 'marker not assessable at this coverage'. Set 2026-08-12 at 0.90.",
+    "marker_breadth_floor": 50.0,
+    "_marker_breadth_floor_why": "A VFDB row counts as a confirmatory marker only above this breadth. There was no floor at all: marker_present fired on a row existing, and in the five ZymoBIOMICS standards the Bacillus anthracis capB row sits at 2.73% breadth / 0.20x depth - 2.7% of the gene at a fifth of a read deep, which is cross-mapping from the B. subtilis in the mix, not a capsule operon. Gate 4 already refuses an acquired resistance gene below 50% breadth; the gate that produces ESCALATE was the one with no bar. Same 50% as gene_breadth_floor, kept separate so it can move on its own. A row with no Coverage column is accepted: some report shapes omit it, and refusing to fire would turn a missing column into a negative on a Category A agent."
   },
   "threat_list": {
     "Bacillus anthracis": {
@@ -507,6 +509,127 @@
     "Brucella anthropi": "Formerly Ochrobactrum anthropi, moved into Brucella in 2020. Ubiquitous reagent contaminant, NOT zoonotic brucellosis. Not a CDC agent.",
     "Bacillus cereus": "B. anthracis near-neighbour. Chromosome is ~99% identical; only pXO1/pXO2 separate them.",
     "Staphylococcus argenteus": "Formerly part of S. aureus. Cross-maps with S. aureus reads."
+  },
+  "_near_neighbour_taxids_comment": "Gate 9 asks whether a near neighbour is present at comparable depth, which used to be a NAME match against the species table - the one join in this engine still keyed on a string. It was already broken for four of these forty: PFI spells them \"Mycobacterium tuberculosis variant bovis\", \"Chlamydia felis Fe/C-56\", \"Cryptosporidium hominis TU502\" and \"Francisella persica ATCC VR-331\", so the check for M. bovis against M. tuberculosis and for F. persica against F. tularensis - both CDC agents - could never fire. Taxids below come only from sources in this repo: the taxid already on a threat_list / clinical_watchlist entry, PFI_DB/list.<Kingdom>.xls (the classifier's own namespace), or a Taxid column in a delivered report. All three agreed wherever more than one knew a name. A list, because PFI's namespace may carry a species entry, a strain entry, or both, and any of them is the neighbour. An empty list means the organism is genuinely absent from PFI_DB and therefore uncallable - gate 9 then falls back to the name match, which is no worse than before.",
+  "near_neighbour_taxids": {
+    "Bacillus cereus": [
+      "1396"
+    ],
+    "Bacillus mycoides": [
+      "1405"
+    ],
+    "Bacillus thuringiensis": [
+      "1428"
+    ],
+    "Brucella anthropi": [
+      "529"
+    ],
+    "Burkholderia cenocepacia": [
+      "95486"
+    ],
+    "Burkholderia cepacia": [
+      "292"
+    ],
+    "Burkholderia mallei": [
+      "13373"
+    ],
+    "Burkholderia pseudomallei": [
+      "28450"
+    ],
+    "Burkholderia thailandensis": [
+      "57975"
+    ],
+    "Chlamydia abortus": [
+      "83555"
+    ],
+    "Chlamydia felis": [
+      "264202"
+    ],
+    "Chlamydia pneumoniae": [
+      "83558"
+    ],
+    "Chlamydia trachomatis": [
+      "813"
+    ],
+    "Clostridium baratii": [
+      "1561"
+    ],
+    "Clostridium butyricum": [
+      "1492"
+    ],
+    "Clostridium sporogenes": [
+      "1509"
+    ],
+    "Cowpox virus": [
+      "10243"
+    ],
+    "Cryptosporidium hominis": [
+      "353151"
+    ],
+    "Cryptosporidium meleagridis": [],
+    "Escherichia albertii": [
+      "208962"
+    ],
+    "Escherichia coli": [
+      "562"
+    ],
+    "Francisella persica": [
+      "1086726"
+    ],
+    "Francisella philomiragia": [
+      "28110"
+    ],
+    "Monkeypox virus": [
+      "10244"
+    ],
+    "Mycobacterium abscessus": [
+      "36809"
+    ],
+    "Mycobacterium avium": [
+      "1764"
+    ],
+    "Mycobacterium bovis": [
+      "1765"
+    ],
+    "Mycobacterium gordonae": [
+      "1778"
+    ],
+    "Mycobacterium intracellulare": [
+      "1767"
+    ],
+    "Mycobacterium paragordonae": [
+      "1389713"
+    ],
+    "Rickettsia felis": [
+      "42862"
+    ],
+    "Rickettsia massiliae": [
+      "35791"
+    ],
+    "Rickettsia rickettsii": [
+      "783"
+    ],
+    "Rickettsia typhi": [
+      "785"
+    ],
+    "Salmonella bongori": [
+      "54736"
+    ],
+    "Shigella flexneri": [
+      "623"
+    ],
+    "Staphylococcus argenteus": [
+      "985002"
+    ],
+    "Vaccinia virus": [
+      "10245"
+    ],
+    "Yersinia enterocolitica": [
+      "630"
+    ],
+    "Yersinia pseudotuberculosis": [
+      "633"
+    ]
   },
   "_kitome_comment": "Seed list of reagent/kit contaminant genera (Salter 2014, Eisenhofer 2019). The computed cross-sample enrichment test is the primary filter; this list only lowers confidence further.",
   "kitome_genera": [
@@ -1015,22 +1138,22 @@
       "note": "crpP is chromosomal in Pseudomonas aeruginosa; plasmid-borne variants exist but chromosomal is the default."
     }
   },
-  "_marker_comment": "Virulence/plasmid markers searched in the VFDB table. Absence downgrades the parent agent.  Two kinds: `markers` are two-way (present=ESCALATE, absent=downgrade to NO_ACTION) and are only used where the gene is unique to the agent and reliably in VFDB. `supporting_markers` are ONE-WAY (present=ESCALATE, absent=no change) for agents where VFDB coverage cannot be certified from the report, so a miss must never read as an exclusion. All searches are restricted to VFDB rows whose reference strain shares the taxon genus.",
+  "_marker_comment": "Every pattern is word-anchored and is matched ONLY against the \"Virulence Factor\" field of a VFDB row. Unanchored, `(pag|lef|cya)` matched \"spaG\" and \"upaG/ehaG\" as substrings, and the row was serialised whole - so a hit could land in \"VF Protein\", which holds accessions like VFG004763(gb|WP_011274497) and can never carry a gene name. Suffix letters stay optional (pagA, stx2a, capD) because VFDB names the same gene several ways.",
   "marker_patterns": {
-    "pXO1": "(pag|lef|cya|pXO1)",
-    "pXO2": "(cap[ABCDE]|acpA|pXO2)",
-    "bont": "(bont|botulinum neurotoxin|ntnh)",
-    "caf1": "caf1",
-    "lcrV": "lcrV",
+    "pXO1": "\\b(pagA?|lef|cya)\\b|\\bpXO1\\b",
+    "pXO2": "\\b(cap[ABCDE]|acpA|dep)\\b|\\bpXO2\\b",
+    "bont": "\\bbont[A-G]?\\b|botulinum neurotoxin|\\bntnh\\b",
+    "caf1": "\\bcaf1[AMR]?\\b",
+    "lcrV": "\\blcrV\\b",
     "pla": "\\bpla\\b",
-    "fopA": "fopA",
-    "tul4": "(tul4|lpnA)",
-    "etx": "(etx|epsilon toxin)",
+    "fopA": "\\bfopA\\b",
+    "tul4": "\\b(tul4|lpnA)\\b",
+    "etx": "\\betx[A-D]?\\b|epsilon toxin",
     "seb": "\\bseb\\b",
-    "ctxA": "ctxA",
-    "ctxB": "ctxB",
-    "stx1": "stx1",
-    "stx2": "stx2",
+    "ctxA": "\\bctxA[BC]?\\b",
+    "ctxB": "\\bctxB\\b",
+    "stx1": "\\bstx1[AB]?\\b",
+    "stx2": "\\bstx2[A-F]?\\b",
     "eae": "\\beae\\b",
     "btp": "\\bbtp[AB]\\b|\\btcpB\\b",
     "omp2531": "\\bomp(25|31)\\b",
