@@ -1,3 +1,104 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this repo is
+
+Biosurveillance analysis of five Singapore transport-hub surface swabs (PFI shotgun metagenomic
+reports), plus a deterministic **triage engine** (`analysis/triage.py`) that turns one PFI report
+into an auditable verdict. No LLM, no ML, no aligner, no reference DB. The engine and its
+rule file are the product; the docs in `docs/` are the deliverable. Read `README.md` first and
+`101_Documentation.md` for the long-form intro. `TODO.md` is the roadmap for the hosted system.
+
+## Commands
+
+All run from the repo root. The engine is **Python 3 stdlib only** — do not add pip
+dependencies to anything the WDL/Docker path calls (`triage.py`, `sample_registry.py`,
+`triage_report.py`, `pfi_folder.py`). `openpyxl`/`python-pptx` are allowed only in the
+workstation reporting scripts (`extract.py`, `analyze.py`, `export_rules.py`, `build_deck.py`).
+
+```bash
+python3 analysis/triage.py --selftest           # rule/regression checks, no data needed — run after any engine or rules change
+python3 analysis/test_flagged_layer.py          # second test file: flagged-species cover sheet properties (needs WBM*_en.html)
+python3 analysis/validate_zymo.py               # engine vs ZymoBIOMICS known-truth standard (needs Zymo/)
+
+python3 analysis/triage.py                      # all five HTX samples -> analysis/triage_<sample>.tsv
+python3 analysis/triage.py WBM232               # one sample (still compared against the cohort registry)
+python3 analysis/triage.py --html [WBM185 ...]  # -> analysis/triage_report.html evidence report
+python3 analysis/triage.py --per-sample ...     # one standalone report per sample
+python3 analysis/triage.py --cohort stool ...   # pick a registry: default / zymo / stool
+python3 analysis/triage.py --independent        # no comparators at all (gate 8 degrades; see sample_registry.py docstring)
+python3 analysis/triage.py --with-fastq         # extra FASTQ-only gates, outside the input contract
+python3 analysis/triage.py --version            # prints engine version + rules fingerprint
+
+python3 analysis/export_rules.py                # triage_rules.json -> docs/reference_rules.md + analysis/triage_rules.xlsx (generated, never hand-edit)
+python3 analysis/extract.py WBM*_en.html        # HTML -> analysis/WBM<id>.json   (table-level analysis path)
+python3 analysis/analyze.py                     # -> species_all.tsv, amr.tsv, vf.tsv
+python3 analysis/build_deck.py                  # -> HTX_biosurveillance_briefing.pptx
+
+docker build -t htx-triage:1.0.0 .              # build runs --selftest and fails on inconsistent rules
+docker run --rm -v "$PWD:/data" htx-triage:1.0.0 triage --outdir=/data/out /data/WBM232_en.html
+bash docs/img/render.sh                         # re-render docs/img/*.mmd -> .svg
+```
+
+There is no pytest/Makefile. "Tests" are `--selftest` (assertions inside `triage.py:selftest()`)
+and `test_flagged_layer.py`. When you fix an engine defect, add a regression assertion to
+`selftest()` and mutation-test it (revert the fix, confirm the assertion fails) — that is the
+convention in `docs/engine_code_review.md`.
+
+## Architecture
+
+**Input contract.** The PFI HTML report (`WBM<id>_en.html`, a Vue SPA with data in an embedded
+`globalData` JS object) is the whole input. Every verdict must be checkable against that page.
+`pfi_folder.py` can build the same `globalData` dict from a PFI result folder's XLSX files
+instead; both feed `triage.load_report()`.
+
+**Gate cascade.** `triage.py` applies the numbered gates described in
+`docs/automated_triage_design.md` (reference for every threshold: `docs/reference_triage.md`).
+Verdict tiers are `NO_ACTION < MONITOR < CONFIRM < ESCALATE`; `NOT_TESTED` sits outside the
+ladder (absence of evidence — this is a DNA-only assay, so RNA viruses are never "absent") and
+must never be compared against or downgraded. Each output row carries the rule that produced it.
+
+**Rules vs code.** `analysis/triage_rules.json` holds all thresholds and biology (threat list,
+kitome genera, AMR classes, marker patterns, long-read thresholds, clinical watchlist, VF core
+sets, AMR host hints). Change biology there, not in Python. `--version` prints a fingerprint of
+this file so runs record which rules produced them. `docs/reference_rules.md` and
+`triage_rules.xlsx` are generated from it by `export_rules.py`.
+
+**Cohort registry (gate 8).** "Unusually abundant *here*" needs comparators. `sample_registry.py`
+maintains one registry per cohort — `analysis/sample_registry.json` (field swabs),
+`sample_registry_zymo.json`, `sample_registry_stool.json` — written by the pipeline, never by
+hand, and tracked in git as durable state. `analysis/sample_metadata.tsv` is the hand-written
+sidecar (site metadata; source of truth is `sampleInfo.xlsx`). A single-sample run is *not* the
+batch run filtered to one sample: without comparators verdicts and row counts change.
+
+**Evidence report.** `triage_report.py` renders the self-contained HTML (inlined CSS/JS, opens
+from disk). It uses the BEC v1 evidence-code scheme (`[DSMPU][RL]<n>` / `U<n>`), deliberately
+distinct from ACMG codes. AMR→host associations are literature hints rendered INFERRED and never
+feed a verdict (MEGARes has no organism column).
+
+**Import graph.** `triage` is the root; `sample_registry` and `triage_report` import it;
+`build_deck`, `validate_zymo`, `test_flagged_layer` import `triage`. Scripts insert their own
+directory on `sys.path`, so run them as `python3 analysis/<script>.py` from the repo root.
+
+**Container/WDL.** `Dockerfile` installs a `triage` wrapper on PATH rather than an ENTRYPOINT
+(a Python ENTRYPOINT breaks Cromwell/miniwdl) and sets no `USER`. `wdl/triage.wdl` wraps it.
+See `docs/howto_run_containerized.md` before touching either.
+
+## Data and files not in git
+
+`WBM*/`, `*.fq.gz`, `WBM*_en.html`, `Zymo/`, `stool_sms/`, `assembly/`, generated
+`analysis/*_report.html` and `triage_rules.xlsx` are gitignored (not ours to redistribute, or
+rebuildable). A fresh clone runs `--selftest` and `--version` only. The `.docx`/`.pptx`/`.pdf`
+proposal files at the root are working documents, not code; `HTX_biosurveillance_briefing_modifed.pptx`
+is a read-only geometry reference.
+
+## Docs conventions
+
+Figures are Mermaid sources in `docs/img/*.mmd` rendered to SVG by `docs/img/render.sh`, pinned
+with `<img width=...>` in markdown — never ASCII art. Markdown docs follow the Diátaxis split
+(reference / explanation / how-to) in the README table; add new docs to that table.
+
 # context-mode — MANDATORY routing rules
 
 You have context-mode MCP tools available. These rules are NOT optional — they protect your context window from flooding. A single unrouted command can dump 56 KB into context and waste the entire session.
