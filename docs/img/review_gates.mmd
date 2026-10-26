@@ -1,0 +1,29 @@
+%%{init: {"flowchart": {"rankSpacing": 16, "nodeSpacing": 22, "wrappingWidth": 470, "subGraphTitleMargin": {"top": 6, "bottom": 10}}}}%%
+flowchart TB
+    accTitle: Engine gate cascade as traced in triage.py
+    accDescr: After the integrity check, the gene path and the two-part taxon path run independently over the same report; each gate names its threshold and the tier it assigns; both paths feed one sample verdict. Inputs and line numbers are in the table beside the figure.
+    IN["12 · integrity: read partition sums"]
+    subgraph GEN["GENE PATH · triage_genes · independent of taxa"]
+        direction LR
+        G3["3 · one call<br/>per Group"] --> G4["4 · breadth &lt; 50%<br/>→ NO_ACTION"] --> G5["5 · rRNA, intrinsic,<br/>efflux → NO_ACTION"] --> G4b["acquired ≥80%/5×<br/>or ≥55%/10× → CONFIRM"]
+    end
+    subgraph TAX1["TAXON PATH · triage_taxa · part 1"]
+        direction LR
+        L["list lookup<br/>by taxid"] --> G2["2 · RNA agent<br/>→ NOT_TESTED"] --> G1["1 · reads &lt; 50<br/>→ NO_ACTION"] --> G7["7 · est/real &gt; 10<br/>→ note only"]
+    end
+    subgraph TAX2["TAXON PATH · part 2"]
+        direction LR
+        G8["8 · load ÷ max other<br/>&lt; 5× → dropped"] --> G9["9 · congener ≥ own<br/>→ NO_ACTION"] --> G10["10 · marker<br/>found → ESCALATE<br/>missed → NO_ACTION *"] --> GW["watchlist + gene<br/>+ host → CONFIRM"]
+    end
+    RU["sample verdict<br/>ESCALATE › INVESTIGATE › MONITOR › NO&nbsp;ACTION<br/>* NOT_TESTED when marker power &lt; 0.9"]
+    IN --> GEN
+    GEN ~~~ TAX1
+    TAX1 --> TAX2
+    TAX2 --> RU
+    classDef gate fill:#e8e4f3,stroke:#5b4b8a,color:#241a3d
+    classDef term fill:#dff0d8,stroke:#3c763d,color:#1b3a1f
+    class IN,L,G2,G1,G7,G8,G9,G10,GW,G3,G4,G5,G4b gate
+    class RU term
+    style GEN fill:#fbfaff,stroke:#bbbbbb
+    style TAX1 fill:#fbfaff,stroke:#bbbbbb
+    style TAX2 fill:#fbfaff,stroke:#bbbbbb

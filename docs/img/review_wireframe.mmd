@@ -1,0 +1,35 @@
+%%{init: {"flowchart": {"rankSpacing": 14, "nodeSpacing": 24, "padding": 6, "wrappingWidth": 320, "subGraphTitleMargin": {"top": 6, "bottom": 10}}}}%%
+flowchart TB
+    accTitle: Proposed one-page site report
+    accDescr: Top to bottom: header with QC gauge, verdict strip, up to three flagged-organism cards with a compact checklist, three graphical panels side by side, and a collapsed evidence appendix.
+    subgraph H["① HEADER"]
+        direction LR
+        H1["site · date · run id"] ~~~ H2["QC gauge: clean reads · host %"] ~~~ H3["DNA only → RNA viruses NOT TESTED"]
+    end
+    subgraph V["② VERDICT STRIP"]
+        direction LR
+        V1["BASELINE / NOTE / CONFIRM"] ~~~ V2["one-line reason"] ~~~ V3["QC-limited badge"]
+    end
+    subgraph C["③ FLAGGED CARDS · max 3"]
+        direction LR
+        C1["organism · reads · %<br/>vs site history"] ~~~ C2["☑ enriched · ☑ acquired gene<br/>☐ marker · ☐ QC ok"] ~~~ C3["action<br/>resample · culture + AST"]
+    end
+    subgraph P["④ PANELS"]
+        direction LR
+        P1["dot strip · reads/M · this site vs others"] ~~~ P2["AMR heat strip · class × presence"] ~~~ P3["sparkline · site history"]
+    end
+    subgraph A["⑤ EVIDENCE APPENDIX · collapsed"]
+        direction LR
+        A1["all species rows + gates fired"] ~~~ A2["all MEGARes groups + class"] ~~~ A3["VFDB · NOT_TESTED list · method"]
+    end
+    H ~~~ V ~~~ C ~~~ P ~~~ A
+    classDef hdr fill:#e8e4f3,stroke:#5b4b8a,color:#241a3d
+    classDef ver fill:#fde3cf,stroke:#c05621,color:#4a2410
+    classDef card fill:#fcf3cf,stroke:#b7950b,color:#4d3f04
+    classDef pan fill:#dff0d8,stroke:#3c763d,color:#1b3a1f
+    classDef app fill:#eeeeee,stroke:#999999,color:#333333
+    class H1,H2,H3 hdr
+    class V1,V2,V3 ver
+    class C1,C2,C3 card
+    class P1,P2,P3 pan
+    class A1,A2,A3 app

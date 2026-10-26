@@ -55,8 +55,9 @@ instead; both feed `triage.load_report()`.
 
 **Gate cascade.** `triage.py` applies the numbered gates described in
 `docs/automated_triage_design.md` (reference for every threshold: `docs/reference_triage.md`).
-Verdict tiers are `NO_ACTION < MONITOR < CONFIRM < ESCALATE`; `NOT_TESTED` sits outside the
-ladder (absence of evidence — this is a DNA-only assay, so RNA viruses are never "absent") and
+Two ladders: per-row tiers `NO_ACTION < MONITOR < CONFIRM < ESCALATE` (`TIERS`), and per-sample
+verdicts `NO ACTION < MONITOR < INVESTIGATE < ESCALATE` (`SAMPLE_VERDICTS`, derived from the rows
+by `sample_verdict()`). `NOT_TESTED` sits outside both (absence of evidence — this is a DNA-only assay, so RNA viruses are never "absent") and
 must never be compared against or downgraded. Each output row carries the rule that produced it.
 
 **Rules vs code.** `analysis/triage_rules.json` holds all thresholds and biology (threat list,

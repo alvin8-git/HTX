@@ -1,0 +1,16 @@
+%%{init: {"flowchart": {"rankSpacing": 30, "nodeSpacing": 24}}}%%
+flowchart LR
+    accTitle: Longitudinal layer for five fixed sites
+    accDescr: A new report is normalised to reads per million classified, compared against the same site's own history when at least three prior runs exist, otherwise against the other sites, and appended to a small stored table that feeds the next run.
+    N(["new report"]) --> RPM["reads/M<br/>per taxid"]
+    RPM --> SELF{"≥ 3 prior<br/>runs here?"}
+    SELF -- yes --> Z["own history<br/>robust z ≥ 3"]
+    SELF -- no --> X["other sites<br/>≥ 5× median"]
+    Z --> OUT["site<br/>conclusion"]
+    X --> OUT
+    OUT --> ST[("stored<br/>rows")]
+    ST -. next run .-> SELF
+    classDef gate fill:#e8e4f3,stroke:#5b4b8a,color:#241a3d
+    classDef term fill:#dff0d8,stroke:#3c763d,color:#1b3a1f
+    class RPM,SELF,Z,X gate
+    class OUT,ST term
