@@ -188,7 +188,7 @@ docker run --rm htx-triage:1.0.0 triage --selftest
 # selftest: all rule checks pass
 
 docker run --rm htx-triage:1.0.0 triage --version
-# htx-triage 1.0.0  rules=257ef531791a       <- record this with your results
+# htx-triage 1.0.0  rules=ca44d8aee3ec  build=15805f877638   <- record these with your results
 ```
 
 **3. Run it on your own reports.** Put the PFI HTML reports in one directory and mount **that
@@ -295,9 +295,12 @@ Organisms that are clinically serious but not CDC agents — *A. baumannii*, *P.
 `clinical_watchlist` whose ceiling is `CONFIRM`. Without it the CDC-only threat list capped
 *A. baumannii*, the most operationally important organism here, at `MONITOR`.
 
-Each run also emits a **sample verdict** (`NO ACTION` / `MONITOR` / `INVESTIGATE` / `ESCALATE`),
-the equivalent of the briefing deck's per-sample call. It agrees with the deck on 3 of 5 samples
-and differs by one step on the other two, both for stated reasons.
+Each run also emits a **sample verdict** (`NO ACTION` / `REVIEW` / `ESCALATE`) — file it, have a
+microbiologist look, send a team — plus two flags that never move a verdict: **`QC-LIMITED`**
+(under 1M classified reads, so a negative carries little weight; WBM156) and **`NOT-TESTED`**
+(DNA-only library, RNA agents never in scope). `REVIEW` replaced the old `MONITOR` /
+`INVESTIGATE` pair on 2026-10-26: both ended in the same action. On this batch:
+WBM156 `REVIEW` (QC-LIMITED), WBM174 and WBM179 `NO ACTION`, WBM185 and WBM232 `REVIEW`.
 
 ### Platform and batch shape
 
@@ -324,10 +327,15 @@ Both were driven by a real batch: [`docs/stool_sms_longread_run.md`](docs/stool_
 python3 analysis/triage.py --html          # -> analysis/triage_report.html
 ```
 
-A single self-contained HTML file — no network, nothing to install — with a sample switcher and
-four tabs each: **QC**, **Flaggable species**, **Resistance genes**, **Method & verification**.
-Species are banded by severity, `ESCALATE` → `NO_ACTION`, with `NOT_TESTED` held below the ladder
-so it can never be misread as a negative.
+A single self-contained HTML file — no network, nothing to install. **One page per swab**: site
+and QC gauge, the verdict strip with its flags, at most three flagged-organism cards (each with a
+four-box criteria checklist: enriched · acquired gene · marker · QC ok, and the action), then four
+panels — this swab vs its comparators (dot strip, log scale), acquired resistance by drug class
+(heat strip), read QC with the 1M floor, and the site's own history (sparkline, a placeholder
+until a site has three runs). Everything else — every taxon row, every gene, the gates that
+fired, the method — is in a collapsed **evidence appendix** below it, where species are banded
+by severity with `NOT_TESTED` held below the ladder so it can never be misread as a negative.
+Visible words per swab: ~500; with the appendix open: ~17,000.
 
 The report is a lens on the PFI report, not a replacement: every evidence row carries the
 identifier you would search for in `<sample>_en.html` — `VFG004763(gb|WP_011274497)` for a

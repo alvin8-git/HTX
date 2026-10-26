@@ -292,13 +292,13 @@ ACTIONABLE = {
                'resistance.\n'
                'WHY "NO ACTION": K. aerogenes at 3.0x is below the 5x enrichment bar, and every gene '
                'above threshold is topped by a commensal. Best baseline in the batch.'),
-    'WBM185': ('INVESTIGATE', RED,
+    'WBM185': ('REVIEW', RED,
                'Highest AMR burden in the batch: 90 genes / 21 classes, mecA at 90.9% and CTX-M at 82.9%.\n'
                'ACTION: resolve the mecA host by culture with AST (antimicrobial susceptibility testing). '
                'It is staphylococcal, but S. aureus holds 0.7% of the staphylococcal reads against '
                'S. hominis at 52% - calling this MRSA assigns the gene to one of the rarest candidates. '
                'No listed ORGANISM drives this verdict; the three genes do.'),
-    'WBM232': ('INVESTIGATE', RED,
+    'WBM232': ('REVIEW', RED,
                'The one operationally significant finding. A. baumannii at 4.72%, load 6-43x above every '
                'other site - real enrichment, not reagent background. It TOPS the host pool of both '
                'acquired genes (21% of 63 candidates): best-supported host, not a proven one.\n'

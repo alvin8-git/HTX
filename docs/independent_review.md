@@ -403,3 +403,26 @@ three `docs/img/review_*.mmd` / `.svg` pairs and changed nothing else. The finge
 `--version` output (`README.md`, `docs/howto_run_containerized.md`,
 `docs/howto_ztron_custom_workflow.md`). `--selftest` and `test_flagged_layer.py` pass after the
 change. No other recommendation in §5 has been implemented.
+
+---
+
+## Implementation status (2026-10-26)
+
+Every row of the prioritised table above was acted on the same day, in `analysis/`:
+
+| Change | Status | Where |
+|---|---|---|
+| `site_id` as the comparison key | done — own history when a site has ≥ 3 prior runs (`site_history_min_runs`), cross-site otherwise; the basis is printed on every output | `triage.comparator_pool`, `triage.batch_context`, `sample_registry.site_context` |
+| QC-LIMITED flag | done — `qc_classified_floor` = 1,000,000; WBM156 now carries it | `triage.qc_flags` |
+| One page per site with an appendix | done — visible words per swab ≈ 500 (was ≈ 13,000); batch page ≈ 5,200 visible (was 64,496) | `triage_report.page_top`, `appendix` |
+| Three sample verdicts | done — `NO ACTION / REVIEW / ESCALATE`, `LEGACY_VERDICTS` for old labels | `triage.SAMPLE_VERDICTS` |
+| Reconcile the fingerprints | done — `rules` and `build` printed under their own labels everywhere | `triage.build_fingerprint` |
+| Collapse the 25 NOT_TESTED rows | done — one row in the TSV and stdout; the data model keeps the rows | `triage.collapse_not_tested` |
+| Flat decision table | done as a **generated view**, first table of `docs/reference_rules.md`, values pulled live from the JSON. Making it the editable source (table → JSON compiler) is deferred until the thresholds stop moving | `export_rules.rows` |
+| Within-genus enrichment ratio | done — reported beside the fold on every listed row; gates only when `genus_ratio_min` is set (default `null`) | `triage.within_genus_ratio` |
+| Zymo as a per-run control | done — `--control <zymo report>` stamps PASS/FAIL on every TSV and the HTML header; needs a standard in the run | `validate_zymo.check`, `triage.run_control` |
+| *C. diphtheriae* + `tox` | done — on `clinical_watchlist` with a one-way `tox` marker; no `tox` row in any of the five swabs, so WBM179 stays MONITOR | `triage_rules.json` |
+| Subspecies table | done — read only where `subspecies_required` is set; a whole-word notifiable serovar on Real Read keeps CONFIRM | `triage.triage_taxa` gate 10c |
+
+Verdict changes on the five swabs from all of the above: none beyond the vocabulary merge.
+WBM232 gains a *C. diphtheriae* watchlist row at MONITOR (288 reads, background); nothing else moved.

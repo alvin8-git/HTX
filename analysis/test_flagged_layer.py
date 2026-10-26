@@ -191,14 +191,14 @@ def main():
     assert 'WBM232' not in cids, 'a sample is never its own comparator'
     solo_reg = R.collect([os.path.join(triage.ROOT, 'WBM232_en.html')],
                          comparators=True, cohort=SR.cohort_loads(reg, 'WBM232'))[0]
-    assert solo_reg['verdict'][0] == d['verdict'][0] == 'INVESTIGATE', \
+    assert solo_reg['verdict'][0] == d['verdict'][0] == 'REVIEW', \
         f"registry cohort gave {solo_reg['verdict'][0]}, batch gave {d['verdict'][0]}"
     bt = {t['taxon']: t['verdict'] for t in d['taxa']}
     pt = {t['taxon']: t['verdict'] for t in solo_reg['taxa']}
     assert bt == pt, ('registry cohort disagrees with the batch on '
                       f'{len([k for k in set(bt) | set(pt) if bt.get(k) != pt.get(k)])} rows')
     # ...and it must beat the no-cohort case, or the registry buys nothing
-    assert len(solo_reg['taxa']) == 84 and len(solo['taxa']) == 370, \
+    assert len(solo_reg['taxa']) == 85 and len(solo['taxa']) == 370, \
         f"cohort {len(solo_reg['taxa'])} rows vs none {len(solo['taxa'])} - the gap is the point"
 
     # --- metadata is never guessed -------------------------------------------------

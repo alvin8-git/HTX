@@ -23,9 +23,9 @@ Two honesty constraints are wired into the rendering, not left to the reader:
 """
 import collections
 import datetime
-import hashlib
 import html
 import json
+import math
 import os
 
 import sample_registry as SR
@@ -60,18 +60,24 @@ VERDICT = {
 }
 
 # The banner at the top of every sample answers a different question from the row tiers above, in a
-# different vocabulary - INVESTIGATE exists here and nowhere else. Legending only the row tiers left
-# a reader looking up the word they had just read and not finding it.
+# different vocabulary - REVIEW exists here and nowhere else. Legending only the row tiers left
+# a reader looking up the word they had just read and not finding it. Three levels (2026-10-26):
+# file it, have someone look at it, send a team. The old MONITOR / INVESTIGATE split both ended in
+# "a microbiologist reads this" and carried no distinct action.
 SAMPLE_VERDICT = {
     'ESCALATE':    (C['red'],   'A threat-list agent with its confirmatory marker present. '
                                 'The only verdict that asserts a biological threat.'),
-    'INVESTIGATE': (C['red'],   'A threat-list or clinical-watchlist organism at CONFIRM, or a '
-                                'high-consequence acquired gene (mecA, CTX-M) at CONFIRM. '
-                                'Something here needs a laboratory, not a decision.'),
-    'MONITOR':     (C['amber'], 'A flagged organism at MONITOR, or ordinary acquired resistance '
-                                'at CONFIRM. Worth knowing, not worth acting on today.'),
+    'REVIEW':      (C['amber'], 'A microbiologist reads this swab: a listed organism at CONFIRM, '
+                                'a high-consequence acquired gene (mecA, CTX-M) at CONFIRM, or a '
+                                'listed organism enriched at this site. The reasons say which.'),
     'NO ACTION':   (C['green'], 'Nothing above. Community-context organisms never contribute.'),
 }
+SV_ORDER = ['ESCALATE', 'REVIEW', 'NO ACTION']
+
+
+def _sv_col(v):
+    v = triage.LEGACY_VERDICTS.get(v, v)
+    return SAMPLE_VERDICT.get(v, (C['grey'],))[0]
 
 # Inline SVG glyphs, 16x16, currentColor. Same semantic roles as the deck's verdict chips.
 ICON = {
@@ -90,6 +96,19 @@ ICON = {
 }
 
 E = lambda s: html.escape(str(s if s is not None else ''))
+
+
+# Both fingerprints a page is stamped with, from the engine's own functions rather than from a
+# hash recomputed here. This used to be one inline sha256 over rules+engine, written out twice and
+# labelled `rules` - which is the rule file's hash under --version and a different number here, so
+# the identifier the README says to record with your results did not match the page in front of
+# you. A named pair, computed once: `rules` answers "which thresholds", `build` answers "which
+# thresholds on which code", and neither can drift into the other's label.
+Fingerprints = collections.namedtuple('Fingerprints', 'rules build')
+
+
+def fingerprints():
+    return Fingerprints(triage.rules_fingerprint(), triage.build_fingerprint())
 
 
 def icon(v):
@@ -779,48 +798,66 @@ def flagged_section(data):
             f'{coverage_fig(data)}{tier_bars(data)}{body}</div></section>')
 
 
-def collect(samples, comparators=None, cohort=None):
+def collect(samples, comparators=None, cohort=None, cohort_name=None, control=None):
     """`cohort` is {taxon: {sample_id: load}} from the registry, merged into this run's loads.
 
     Same shape and normalisation as triage.loads_by_taxon, so triage.enrichment cannot tell a
     stored sample from one loaded off disk. That is what lets a single swab be judged against
-    every swab analysed before it instead of against nothing.
+    every swab analysed before it instead of against nothing. Gate 8's comparator set and the
+    QC flags come from triage.batch_context / triage.qc_flags - the TSV and this page share them.
     """
     reports = {s: triage.load_report(s) for s in samples}
     classified, integrity = {}, {}
     for s, g in reports.items():
         integrity[s], classified[s] = triage.gate_integrity(s, g)
-    loads = triage.loads_by_taxon(reports, classified)
-    for taxon, per in (cohort or {}).items():
-        loads[taxon].update(per)
-    if comparators is None:
-        comparators = len(samples) > 1 or bool(cohort)
+    # `cohort` None means "no registry" here (the batch page compares the batch against itself,
+    # as it always has); batch_context reads None as "go and fetch the registry", which is the
+    # TSV path's default. Pass {} to keep the two behaviours where they were.
+    loads, names, pools, comparators, _ = triage.batch_context(
+        samples, reports, classified, comparators, cohort_name,
+        cohort if cohort is not None else {})
+    meta = SR.metadata()
+    ctrl = triage.run_control(control) if control else None
 
     out = []
     for s in samples:
         g = reports[s]
         genes = triage.triage_genes(g)
-        taxa = triage.triage_taxa(s, g, loads, genes, comparators)
+        pool, basis = pools[s]
+        taxa = triage.triage_taxa(s, g, loads, genes, comparators, pool=pool, names=names)
         vfd = g.get('virulence', {}).get('DNA', {})
         vf_rows = vfd.get('data', []) if isinstance(vfd, dict) else []
 
         for t in taxa:
             t['vf'], t['vf_rows'] = vf_for_taxon(vf_rows, t['taxon'])
 
-        out.append({
+        sid = triage.sample_id(s)
+        d = {
             # sample_id strips a localised path down to the stem: under WDL `s` is
             # /cromwell-executions/.../WBM185_en.html, which is not a sample name.
-            'sample': triage.sample_id(s), 'id': triage.sample_id(s),
+            'sample': sid, 'id': sid, 'site': meta.get(sid, {}),
             'platform': 'long read' if triage.detect_platform(g) == 'long' else 'short read',
             'qc': g['basicSummary']['readsQc']['data'][0],
             'idsum': (g['basicSummary'].get('idSummary', {}).get('data') or [{}])[0],
             'integrity': integrity[s], 'classified': classified[s],
             'taxa': taxa, 'genes': genes, 'comparators': comparators, 'n_samples': len(samples),
             'verdict': triage.sample_verdict(taxa, genes),
+            'flags': triage.qc_flags(g, classified[s]), 'basis': basis, 'control': ctrl,
             'n_vf': len(vf_rows), 'n_amr': len(g.get('drugResistance', {}).get('DNA', {}).get('data', [])),
             'n_species': len(g['indentification_DNA']['speciesData']['data']),
             'showRNA': bool(g.get('showRNA')),
-        })
+        }
+        # Depth-normalised loads for the card taxa only: this swab against its comparator set,
+        # which is what the dot strip draws and the sparkline extends into the site's history.
+        rows = []
+        for t in card_pick(d)[0]:
+            key = str(t.get('taxid') or '').strip() or 'name:' + t['taxon']
+            per = loads.get(key, {})
+            others = sorted((triage.sample_id(k), v) for k, v in per.items()
+                            if k != s and (pool is None or k in pool))
+            rows.append((t['taxon'], key, per.get(s, 0.0), others))
+        d['loadrows'] = rows
+        out.append(d)
     return out
 
 
@@ -1103,7 +1140,8 @@ the command shown. No network, no database, no aligner &mdash; Python 3 standard
 <table class="kv">
 <tr><th>Engine</th><td>analysis/triage.py</td></tr>
 <tr><th>Rules</th><td>analysis/triage_rules.json</td></tr>
-<tr><th>Fingerprint</th><td class="acc">{E(fp)}</td></tr>
+<tr><th>Rules fingerprint</th><td class="acc">{E(fp.rules)}</td></tr>
+<tr><th>Build fingerprint</th><td class="acc">{E(fp.build)} <span class="tiny">rules + engine</span></td></tr>
 <tr><th>Also written</th><td>analysis/triage_{E(d["id"])}.tsv</td></tr>
 </table>
 <h3>Verify a row against the PFI report</h3>
@@ -1125,10 +1163,10 @@ the rows &mdash; a different question, and a different set of words, from the ro
 <table class="kv v">{''.join(
     f'<tr><th><span class="chip" style="background:{SAMPLE_VERDICT[v][0]}">{E(v)}</span></th>'
     f'<td>{E(SAMPLE_VERDICT[v][1])}</td></tr>'
-    for v in ['ESCALATE', 'INVESTIGATE', 'MONITOR', 'NO ACTION'])}</table>
+    for v in SV_ORDER)}</table>
 <h3>How to read a row verdict</h3>
 <p class="blurb">On the species and resistance-gene tabs. <b>CONFIRM is the ceiling for any AMR
-gene</b>, and no row is ever labelled INVESTIGATE &mdash; that word belongs to the sample.</p>
+gene</b>, and no row is ever labelled REVIEW &mdash; that word belongs to the sample.</p>
 <table class="kv v">{''.join(f'<tr><th>{chip(v)}</th><td>{E(VERDICT[v][1])}</td></tr>'
                              for v in ['ESCALATE', 'CONFIRM', 'MONITOR', 'NOT_TESTED', 'NO_ACTION'])}</table>
 <h3>What this page cannot tell you</h3>
@@ -1394,10 +1432,373 @@ function showSample(id){pick('.bar button','s',id);
 function showTab(s,t){pick('.panel[data-s="'+s+'"] .tabs button','t',t);
   document.querySelectorAll('.panel[data-s="'+s+'"] .tabp').forEach(function(p){
     p.hidden=(p.dataset.t!==t);});}
-/* A cover-sheet link points at a card inside a hidden panel AND a hidden tab. Reveal both
-   before the browser tries to scroll, or the jump silently lands nowhere. */
-function openCard(s){showSample(s);showTab(s,'sp');}
+/* A cover-sheet link points at a card inside a hidden panel, a closed appendix AND a hidden
+   tab. Reveal all three before the browser tries to scroll, or the jump silently lands nowhere. */
+function openCard(s){showSample(s);
+  document.querySelectorAll('.panel[data-s="'+s+'"] details.appx').forEach(function(a){a.open=true;});
+  showTab(s,'sp');}
 """
+
+# -- one-page layout (2026-10-26) ---------------------------------------------------------------
+# Header · verdict strip · at most three flagged cards · panels · collapsed evidence appendix.
+# Nothing the old tabs rendered is gone: it all sits behind one <details>, so the ~64k words of
+# evidence stay reachable and stop being the first thing a reader meets. Charts are inline SVG,
+# one hue per job (blue = this swab, grey outline = comparators, amber = CONFIRM), direct labels
+# on at most a handful of marks, and every chart has a table twin in the appendix.
+CSS += """
+.pghead{display:flex;gap:18px;align-items:center;flex-wrap:wrap;padding:14px 26px;
+  background:#fff;border-bottom:1px solid #e2e8f0;font-size:12.5px}
+.pghead .site{font-weight:700;font-size:14px}
+.gauge{display:inline-flex;align-items:center;gap:8px;font-size:12px}
+.gl{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#6D6D6D}
+.gtrack{width:110px;height:10px;border-radius:5px;background:#e8eef4;overflow:hidden;flex:none}
+.gfill{display:block;height:100%;border-radius:5px}
+.standing{margin-left:auto;font-size:11.5px;color:#6D6D6D;border:1px dashed #c8cfd6;
+  border-radius:4px;padding:3px 9px}
+.vstrip{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:14px 26px;
+  background:#EDF2F8;border-bottom:1px solid #dbe3ec}
+.vstrip .svchip{font-size:14px;padding:7px 14px}
+.vstrip .vreason{font-size:13px;flex:1;min-width:260px}
+.flag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.05em;
+  padding:3px 8px;border-radius:3px;border:1px solid;margin-left:4px}
+.flag.qc-limited{color:#C02A2A;border-color:#C02A2A;background:#FBEAEA}
+.flag.not-tested{color:#5C5C5C;border-color:#8B8B8B;background:#F2F3F4}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;
+  padding:16px 26px 4px}
+.fcard{border:1px solid #dde3ea;border-left:5px solid #6D6D6D;border-radius:7px;padding:12px 14px;
+  background:#fff;display:flex;flex-direction:column;gap:8px}
+.fcard.ESCALATE{border-left-color:#C02A2A}.fcard.CONFIRM{border-left-color:#AD6400}
+.fcard.MONITOR{border-left-color:#00539B}.fcard.NOT_TESTED{border-left-color:#8B8B8B}
+.fchd{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.fchd i{font-weight:700;font-size:14px}
+.fcm{font-size:12px;color:#333}
+.cks{display:grid;grid-template-columns:1fr 1fr;gap:5px 10px}
+.ck{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#333;min-height:22px}
+.ck b{font-weight:600;color:#6D6D6D;margin-left:auto;text-align:right;font-size:11px}
+.ckb{width:15px;height:15px;border:1.5px solid #8B8B8B;border-radius:3px;flex:none;
+  display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1}
+.ck.on .ckb{background:#00539B;border-color:#00539B;color:#fff}
+.ck.na .ckb{border-style:dashed;color:#8B8B8B}
+.fact{font-size:12.5px;font-weight:600;border-top:1px solid #eef2f6;padding-top:7px}
+.nocard{margin:16px 26px 4px;padding:12px 14px;border:1px solid #dde3ea;border-radius:7px;
+  font-size:12.5px;background:#fbfcfd}
+.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px;
+  padding:12px 26px 10px}
+.panel-fig{border:1px solid #dde3ea;border-radius:7px;background:#fff;padding:12px 14px}
+.panel-fig b.t{font-size:12.5px;display:block;margin-bottom:2px}
+.panel-fig .tiny{margin:0 0 8px}
+.panel-fig svg{display:block;max-width:100%;height:auto;overflow:visible}
+details.appx{margin:10px 26px 30px;border:1px solid #dde3ea;border-radius:7px;background:#fbfcfd}
+details.appx > summary{cursor:pointer;padding:11px 14px;font-size:13px;font-weight:600;
+  color:#00539B;min-height:44px;display:flex;align-items:center}
+details.appx > summary:focus-visible{outline:2px solid #00539B;outline-offset:-2px}
+details.appx[open] > summary{border-bottom:1px solid #e2e8f0}
+details.appx .flagged{border:0;padding:12px 0}
+details.appx main{padding-top:10px}
+.ctrl{font-size:11.5px;color:#333}
+.ctrl.fail{color:#C02A2A;font-weight:700}
+@media print{details.appx{display:none}}
+"""
+
+ACTION = {
+    'ESCALATE':   'Notify now: a threat-list agent with its confirmatory marker.',
+    'CONFIRM':    'Culture with AST, and resample this site.',
+    'NOT_TESTED': 'Targeted PCR or culture: present, and the marker test had no power here.',
+    'MONITOR':    'Read at the next weekly review.',
+}
+
+
+def card_pick(d):
+    """At most three taxa, worst first: CONFIRM/ESCALATE, then present-but-unassessable, then
+    a site-enriched listed organism. Community-context rows never make a card. Returns
+    (cards, how many further candidates were left for the appendix)."""
+    th = triage.TH['enrichment_fold']
+
+    def rank(t):
+        v = t['verdict']
+        if v == 'ESCALATE':
+            return 0
+        if v == 'CONFIRM':
+            return 1
+        if v == 'NOT_TESTED' and t.get('real'):
+            return 2
+        if v == 'MONITOR' and (t.get('fold') or 0) >= th:
+            return 3
+        return 9
+    cand = [t for t in d['taxa'] if (t.get('tier') or '-') != '-' and rank(t) < 9]
+    cand.sort(key=lambda t: (rank(t), -(t.get('real') or 0)))
+    return cand[:3], max(0, len(cand) - 3)
+
+
+def _box(met, label, value, na=False):
+    cls = 'na' if na else ('on' if met else 'off')
+    mark = '&ndash;' if na else ('&#10003;' if met else '')
+    return f'<span class="ck {cls}"><span class="ckb">{mark}</span>{label}<b>{E(value)}</b></span>'
+
+
+def checklist(d, t):
+    """The four criteria as boxes with the measured number beside each. The ledger says the same
+    thing in ~1,500 words; this is the version an operations officer reads."""
+    why = t.get('why') or ''
+    fold, th = t.get('fold'), triage.TH['enrichment_fold']
+    enr = fold is not None and fold >= th
+    fv = 'n/a' if fold is None else ('only here' if fold == float('inf') else f'{fold:.1f}×')
+    gr = t.get('genus_ratio')
+    if gr is not None and fold not in (None, float('inf')):
+        fv += f' · genus {gr:.1f}×'
+    co = 'CO-LOCATION' in why
+    nconf = sum(1 for c in (t.get('amr_context') or [])
+                if c.get('verdict') == 'CONFIRM' and c.get('class') == 'acquired')
+    gv = (f'{nconf} at CONFIRM' + (', host documented' if co else ', host unresolved')
+          if nconf else 'none')
+    w = triage.RULES['clinical_watchlist'].get(binomial(t['taxon'])) or {}
+    req = list(t.get('markers_required') or []) + list(w.get('markers') or [])
+    found = list(t.get('markers_found') or [])
+    if 'MARKER PRESENT: ' in why and not found:
+        found = [why.split('MARKER PRESENT: ', 1)[1].split(';')[0].split(' - ')[0]]
+    mv = (', '.join(found) if found else 'not assessable' if 'NOT ASSESSABLE' in why
+          else 'absent' if req else 'none defined')
+    qc_ok = not any(f == 'QC-LIMITED' for f, _ in d['flags'])
+    return ('<div class="cks">' + _box(enr, 'enriched', fv, na=fold is None)
+            + _box(co, 'acquired gene', gv)
+            + _box(bool(found), 'marker', mv, na=not req and not found)
+            + _box(qc_ok, 'QC ok', 'yes' if qc_ok else 'QC-LIMITED') + '</div>')
+
+
+def card(d, t):
+    v = t['verdict']
+    sub = (E(t.get('watch_priority')) if t.get('tier') == 'W'
+           else f'CDC Category {E(t["tier"])}')
+    abund = f'<b>{t["real"]:,}</b> reads' + (f' &middot; {E(t["abundance"])}' if t.get('abundance') else '')
+    return (f'<div class="fcard {v}"><div class="fchd">{chip(v)}<i>{E(t["taxon"])}</i>'
+            f'<span class="tiny">{sub}</span></div>'
+            f'<div class="fcm">{abund} &middot; comparators: {E(d["basis"].split(" (")[0])}</div>'
+            f'{checklist(d, t)}<div class="fact">{E(ACTION.get(v, ""))}</div>'
+            f'<a class="deep tiny" href="#{anchor(d, t)}" onclick="openCard(\'{E(d["id"])}\')">'
+            f'Full evidence &rarr;</a></div>')
+
+
+def _qcnum(q, key):
+    v = str(q.get(key, '') or '').split(' ')[0].replace(',', '')
+    return int(v) if v.isdigit() else 0
+
+
+def page_head(d, meta):
+    q, floor, clas = d['qc'], triage.TH['qc_classified_floor'], d['classified']
+    host = str(q.get('Host_Read', ''))
+    host = host.split('(')[1].rstrip(')') if '(' in host else '&mdash;'
+    lim = clas < floor
+    gauge = (f'<span class="gauge"><span class="gl">QC</span><span class="gtrack">'
+             f'<span class="gfill" style="width:{min(clas / floor, 1.0):.0%};'
+             f'background:{C["red"] if lim else C["green"]}"></span></span>'
+             f'<span>{clas / 1e6:.2f}M classified <span class="tiny">/ {floor / 1e6:.0f}M floor'
+             f'</span> &middot; host {host}</span></span>')
+    standing = ('' if d['showRNA'] else
+                '<span class="standing">DNA assay &rarr; RNA viruses NOT TESTED</span>')
+    ctrl = ''
+    if d.get('control'):
+        c = d['control']
+        ctrl = f'<span class="ctrl{"" if c["ok"] else " fail"}">run control: {E(c["line"])}</span>'
+    return (f'<div class="pghead"><span class="site">{site_line(d["id"], meta)}</span>'
+            f'{gauge}{ctrl}{standing}</div>')
+
+
+def verdict_strip(d):
+    sv, sv_why = d['verdict']
+    reason = sv_why[0] if sv_why else 'Nothing above threshold.'
+    flags = ''.join(f'<span class="flag {f.lower()}" title="{E(r)}">{E(f)}</span>'
+                    for f, r in d['flags'])
+    return (f'<div class="vstrip"><span class="svchip" style="background:{_sv_col(sv)}">{E(sv)}'
+            f'</span><span class="vreason">{E(reason)}'
+            + (f' <span class="tiny">+{len(sv_why) - 1} more in the appendix</span>'
+               if len(sv_why) > 1 else '')
+            + f'</span><span>{flags}</span></div>')
+
+
+def cards_html(d):
+    cards, more = card_pick(d)
+    if not cards:
+        return ('<div class="nocard"><b>No organism meets a card criterion.</b> Nothing reached '
+                'CONFIRM, nothing listed is enriched at this site, and nothing present was left '
+                'unassessable. Listed organisms at background level are in the appendix.</div>')
+    tail = (f'<div class="nocard tiny">+ {more} further candidate{"s" if more != 1 else ""} '
+            f'below these three &mdash; see the appendix.</div>' if more else '')
+    return f'<div class="cards">{"".join(card(d, t) for t in cards)}</div>{tail}'
+
+
+def dot_strip(d):
+    """Site vs comparators, one row per card taxon, log x. Filled = this swab, open = comparators.
+    A bar would imply a zero baseline a log ratio does not have."""
+    rows = [r for r in d['loadrows'] if r[2] > 0 or any(v > 0 for _, v in r[3])]
+    if not rows:
+        return ''
+    vals = [v for _, _, h, o in rows for v in [h] + [x for _, x in o] if v > 0]
+    lo, hi = math.floor(math.log10(min(vals))), math.ceil(math.log10(max(vals)))
+    if hi == lo:
+        hi = lo + 1
+    W, L, R, rh = 520, 190, 16, 26
+    x = lambda v: L + (math.log10(max(v, 10 ** lo)) - lo) / (hi - lo) * (W - L - R)
+    H = 16 + len(rows) * rh + 22
+    s = [f'<svg viewBox="0 0 {W} {H}" width="{W}" height="{H}" role="img" '
+         f'aria-label="reads per million classified, this swab against its comparators">']
+    for p in range(lo, hi + 1):
+        s.append(f'<line x1="{x(10 ** p):.1f}" x2="{x(10 ** p):.1f}" y1="8" y2="{H - 20}" '
+                 f'stroke="#eef2f6"/><text x="{x(10 ** p):.1f}" y="{H - 6}" text-anchor="middle" '
+                 f'font-size="10" fill="#6D6D6D">{10 ** p:,}</text>')
+    for i, (taxon, _, here, others) in enumerate(rows):
+        y = 18 + i * rh
+        s.append(f'<text x="{L - 8}" y="{y + 4}" text-anchor="end" font-size="11" '
+                 f'font-style="italic" fill="#333">{E(taxon[:30])}</text>')
+        for sid, v in others:
+            if v > 0:
+                s.append(f'<circle cx="{x(v):.1f}" cy="{y}" r="4.5" fill="#fff" stroke="#6D6D6D" '
+                         f'stroke-width="1.5"><title>{E(sid)}: {v:,.0f} reads/M</title></circle>')
+        if here > 0:
+            s.append(f'<circle cx="{x(here):.1f}" cy="{y}" r="5.5" fill="{C["blue"]}" stroke="#fff" '
+                     f'stroke-width="2"><title>{E(d["sample"])}: {here:,.0f} reads/M</title></circle>')
+    s.append('</svg>')
+    return (f'<div class="panel-fig"><b class="t">This swab vs comparators</b><p class="tiny">'
+            f'Reads per million classified, log scale. Filled = {E(d["sample"])}; open = '
+            f'{E(d["basis"].split(" (")[0])} comparators.</p>{"".join(s)}</div>')
+
+
+def amr_strip(data, cur):
+    """Drug class x swab, shaded by the deepest acquired gene; amber ring = a CONFIRM in that
+    class. rRNA and efflux classes are already out (gates 4-5). One hue, light to dark."""
+    keep = lambda g: g.get('class') == 'acquired' and g['verdict'] in ('CONFIRM', 'MONITOR') and g.get('drug_class')
+    classes = sorted({g['drug_class'] for d in data for g in d['genes'] if keep(g)})
+    if not classes:
+        return ''
+    best = {(d['id'], g['drug_class']): max([x['depth'] for x in d['genes'] if keep(x)
+                                              and x['drug_class'] == g['drug_class']] or [0])
+            for d in data for g in d['genes'] if keep(g)}
+    conf = {(d['id'], g['drug_class']) for d in data for g in d['genes']
+            if keep(g) and g['verdict'] == 'CONFIRM'}
+    top = max(best.values()) or 1
+    cw, rh, L, T = 24, 24, 66, 78
+    W, H = L + len(classes) * cw + 8, T + len(data) * rh + 6
+    s = [f'<svg viewBox="0 0 {W} {H}" width="{W}" height="{H}" role="img" '
+         f'aria-label="acquired resistance classes per swab">']
+    for ci, cls in enumerate(classes):
+        cx = L + ci * cw + cw / 2
+        s.append(f'<text transform="translate({cx:.1f},{T - 6}) rotate(-55)" font-size="10" '
+                 f'fill="#6D6D6D" text-anchor="start">{E(cls[:24])}</text>')
+    for ri, d in enumerate(data):
+        y = T + ri * rh
+        s.append(f'<text x="{L - 6}" y="{y + rh / 2 + 4}" text-anchor="end" font-size="11" '
+                 f'font-weight="{700 if d["id"] == cur else 400}" fill="#333">{E(d["sample"])}</text>')
+        for ci, cls in enumerate(classes):
+            v = best.get((d['id'], cls), 0)
+            a = 0.12 + 0.88 * (math.log10(1 + v) / math.log10(1 + top)) if v else 0
+            fill = f'rgba(0,83,155,{a:.2f})' if v else '#f4f6f9'
+            ring = f' stroke="{C["amber"]}" stroke-width="2.5"' if (d['id'], cls) in conf else ''
+            s.append(f'<rect x="{L + ci * cw + 1}" y="{y + 1}" width="{cw - 2}" height="{rh - 2}" '
+                     f'rx="3" fill="{fill}"{ring}><title>{E(d["sample"])} &middot; {E(cls)}: '
+                     f'{v:.1f}x deepest acquired gene{" (CONFIRM)" if (d["id"], cls) in conf else ""}'
+                     f'</title></rect>')
+    s.append('</svg>')
+    return (f'<div class="panel-fig"><b class="t">Acquired resistance by drug class</b>'
+            f'<p class="tiny">Shade = depth of the deepest acquired gene in the class; amber ring = '
+            f'a gene at CONFIRM. Not attributed to any organism.</p>{"".join(s)}</div>')
+
+
+def qc_bars(data, cur):
+    """Read partition per swab as one horizontal bar, absolute length = raw reads, with the
+    classified floor marked. For WBM156 the partition IS the finding."""
+    segs = [('Host_Read', 'host', '#b9c4d0'), ('Lowquality_Read', 'low quality', '#dfe5ec'),
+            ('Unclassified_Read', 'unclassified', '#8fb3d9'), ('Classified_Read', 'classified', C['blue'])]
+    floor = triage.TH['qc_classified_floor']
+    raws = {d['id']: (_qcnum(d['qc'], 'Raw_Read') or sum(_qcnum(d['qc'], k) for k, _, _ in segs))
+            for d in data}
+    top = max(raws.values()) or 1
+    L, R, rh, W = 66, 118, 22, 520
+    H = 10 + len(data) * rh + 26
+    s = [f'<svg viewBox="0 0 {W} {H}" width="{W}" height="{H}" role="img" aria-label="read QC">']
+    for ri, d in enumerate(data):
+        y, x0 = 10 + ri * rh, L
+        q, raw = d['qc'], raws[d['id']]
+        bw = (W - L - R) * raw / top
+        s.append(f'<text x="{L - 6}" y="{y + 15}" text-anchor="end" font-size="11" '
+                 f'font-weight="{700 if d["id"] == cur else 400}" fill="#333">{E(d["sample"])}</text>')
+        for key, label, col in segs:
+            n = _qcnum(q, key)
+            if not n:
+                continue
+            w = bw * n / raw
+            s.append(f'<rect x="{x0:.1f}" y="{y + 2}" width="{max(w - 1, 0.5):.1f}" height="{rh - 6}" '
+                     f'rx="2" fill="{col}"><title>{E(d["sample"])} {label}: {n:,} '
+                     f'({n / raw:.1%})</title></rect>')
+            if key == 'Classified_Read':
+                fx = x0 + bw * min(floor, n) / raw
+                s.append(f'<line x1="{fx:.1f}" x2="{fx:.1f}" y1="{y}" y2="{y + rh - 2}" '
+                         f'stroke="{C["red"] if n < floor else C["green"]}" stroke-width="2" '
+                         f'stroke-dasharray="3 2"><title>{floor:,} classified floor</title></line>')
+                s.append(f'<text x="{x0 + bw + 6:.1f}" y="{y + 15}" font-size="10" '
+                         f'fill="{C["red"] if n < floor else "#333"}">{n / 1e6:.2f}M classified</text>')
+            x0 += w
+    lx = L
+    for key, label, col in segs:
+        s.append(f'<rect x="{lx}" y="{H - 14}" width="10" height="10" rx="2" fill="{col}"/>'
+                 f'<text x="{lx + 14}" y="{H - 5}" font-size="10" fill="#6D6D6D">{label}</text>')
+        lx += 86
+    s.append('</svg>')
+    return (f'<div class="panel-fig"><b class="t">Read QC</b><p class="tiny">Bar length = raw '
+            f'reads; dashed tick = the {floor / 1e6:.0f}M classified-read floor (red when under '
+            f'it).</p>{"".join(s)}</div>')
+
+
+def sparklines(d, reg):
+    """Reads per million over this site's own runs, per card taxon. A placeholder line until
+    the site has three runs is honest; a verdict about "new here" needs a history."""
+    site = (d.get('site') or {}).get('site_id')
+    sites = SR.site_ids(reg)
+    runs = sorted(((rec.get('analysed_at', ''), sid, rec) for sid, rec in reg['samples'].items()
+                   if site and sites.get(sid) == site and sid != d['id']), key=lambda r: r[:2])
+    if not site:
+        note = 'Site not captured in analysis/sample_metadata.tsv, so no history can accrue.'
+    else:
+        n = len(runs) + 1
+        note = (f'{n} run{"s" if n != 1 else ""} at this site. History drives gate 8 from '
+                f'{triage.TH["site_history_min_runs"]} runs.')
+    rows = d['loadrows']
+    W, rh, L = 520, 26, 190
+    H = 14 + max(1, len(rows)) * rh
+    s = [f'<svg viewBox="0 0 {W} {H}" width="{W}" height="{H}" role="img" aria-label="site history">']
+    for i, (taxon, key, here, _) in enumerate(rows):
+        y = 18 + i * rh
+        series = [(rec.get('loads', {}).get(key, 0) / rec['classified'] * 1e6) if rec.get('classified')
+                  else 0 for _, _, rec in runs] + [here]
+        top = max(series) or 1
+        pts = [(L + j * (W - L - 16) / max(len(series) - 1, 1), y + 8 - 16 * v / top)
+               for j, v in enumerate(series)]
+        s.append(f'<text x="{L - 8}" y="{y + 4}" text-anchor="end" font-size="11" '
+                 f'font-style="italic" fill="#333">{E(taxon[:30])}</text>')
+        if len(pts) > 1:
+            s.append('<polyline fill="none" stroke="#6D6D6D" stroke-width="1.5" points="'
+                     + ' '.join(f'{px:.1f},{py:.1f}' for px, py in pts) + '"/>')
+        else:
+            s.append(f'<line x1="{L}" x2="{W - 16}" y1="{y + 8}" y2="{y + 8}" stroke="#dde3ea" '
+                     f'stroke-dasharray="4 3"/>')
+        px, py = pts[-1]
+        s.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="4.5" fill="{C["blue"]}" stroke="#fff" '
+                 f'stroke-width="1.5"><title>{E(d["sample"])}: {here:,.0f} reads/M</title></circle>')
+    if not rows:
+        s.append(f'<text x="{L}" y="22" font-size="11" fill="#6D6D6D">no card taxa</text>')
+    s.append('</svg>')
+    return (f'<div class="panel-fig"><b class="t">Site history</b><p class="tiny">{E(note)}</p>'
+            f'{"".join(s)}</div>')
+
+
+def page_top(d, data, meta, reg):
+    """The one page: head, verdict strip, cards, panels. The appendix is added by the caller."""
+    return (page_head(d, meta) + verdict_strip(d) + cards_html(d)
+            + f'<div class="panels">{dot_strip(d)}{amr_strip(data, d["id"])}'
+              f'{qc_bars(data, d["id"])}{sparklines(d, reg)}</div>')
+
+
+def appendix(inner):
+    return (f'<details class="appx"><summary>Evidence appendix &mdash; every taxon row, every '
+            f'resistance gene, the gates that fired, QC and the method</summary>{inner}</details>')
 
 
 # ---------------------------------------------------------------- per-sample report
@@ -1411,12 +1812,6 @@ function openCard(s){showSample(s);showTab(s,'sp');}
 # can change an older sample's verdict; nothing is rewritten behind your back, and the
 # fingerprint is how a stale report is spotted.
 
-SV_ORDER = ['ESCALATE', 'INVESTIGATE', 'MONITOR', 'NO ACTION']
-
-
-def _sv_col(v):
-    return {'ESCALATE': C['red'], 'INVESTIGATE': C['red'],
-            'MONITOR': C['amber'], 'NO ACTION': C['green']}.get(v, C['grey'])
 
 
 def site_line(sid, meta):
@@ -1467,21 +1862,22 @@ def cohort_block(reg, cids, cfp, meta):
             f'</div></details>')
 
 
-def build_one(sample, reg, meta, fp, outdir=None):
+def build_one(sample, reg, meta, fp, outdir=None, cohort_name=None, control=None):
     """Render one swab's report against the registry, and return (path, data, cohort ids)."""
     sid = triage.sample_id(sample)
     cids = SR.cohort_ids(reg, sid)
     cfp = SR.fingerprint(reg, cids)
-    d = collect([sample], comparators=bool(cids), cohort=SR.cohort_loads(reg, sid))[0]
+    d = collect([sample], comparators=bool(cids), cohort=SR.cohort_loads(reg, sid),
+                cohort_name=cohort_name, control=control)[0]
 
     cmd = f'python3 analysis/triage.py --per-sample {sid}'
     stamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     sv, sv_why = d['verdict']
     reasons = ''.join(f'<li>{E(r)}</li>' for r in sv_why[:5]) or '<li>Nothing above threshold.</li>'
 
-    # The flagged-species cover sheet is the first tab, not a band above the tabs. Everything
-    # below it is the original triage output - ~50k words of evidence that must remain reachable
-    # and must not be the first thing on the page.
+    # One page, then the appendix. The appendix is the whole previous report - cover sheet and
+    # four tabs - behind a single <details>, so the ~50k words of evidence remain reachable and
+    # are not the first thing on the page.
     tabs = [('fl', 'Flagged species'), ('qc', 'QC &amp; depth'), ('sp', 'All taxa'),
             ('amr', 'Resistance genes'), ('me', 'Method &amp; verification')]
     tb = ''.join(f'<button data-t="{t}" onclick="showTab(\'{E(sid)}\',\'{t}\')" '
@@ -1494,28 +1890,24 @@ def build_one(sample, reg, meta, fp, outdir=None):
     counts = {v: sum(1 for t in d['taxa'] if t['verdict'] == v) for v in VERDICT}
     head = ' &nbsp;·&nbsp; '.join(f'{chip(v)} {counts[v]}' for v in
                                  ['ESCALATE', 'CONFIRM', 'MONITOR', 'NOT_TESTED'] if counts[v])
+    inner = (f'<div class="verdict" style="border-color:{_sv_col(sv)}"><div><b>All reasons for '
+             f'{E(sv)}.</b><ul class="plain">{reasons}</ul></div></div>'
+             f'<div class="tabs">{tb}</div><main>'
+             f'<p class="blurb">{d["classified"]:,} classified reads &nbsp;·&nbsp;'
+             f'{head or "no taxon above NO ACTION"}</p>{cohort_block(reg, cids, cfp, meta)}{tp}</main>')
 
     doc = f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{E(sid)} — triage evidence report</title>
+<title>{E(sid)} — triage report</title>
 <style>{CSS}</style></head><body>
 <header><h1>{E(sid)}</h1>
-<div class="sub">{site_line(sid, meta)}</div>
 <div class="sub">Deterministic gate cascade over the PFI metagenomic report &nbsp;·&nbsp;
-analysed {E(stamp)} &nbsp;·&nbsp; rules {E(fp)} &nbsp;·&nbsp; cohort {E(cfp)}
+analysed {E(stamp)} &nbsp;·&nbsp; rules {E(fp.rules)} &nbsp;·&nbsp; build {E(fp.build)}
+&nbsp;·&nbsp; cohort {E(cfp)}
 ({len(cids)} comparator{"s" if len(cids) != 1 else ""})</div></header>
-<section class="svhero"><div class="svwrap">
-  <div class="svmain"><span class="svchip" style="background:{_sv_col(sv)}">{E(sv)}</span>
-    <div class="svtext"><b>What to do about this swab.</b> Rolled up from the rows below: a
-    threat-list agent with its marker present gives ESCALATE; a threat-list or watchlist organism
-    at CONFIRM, or a high-consequence acquired gene, gives INVESTIGATE.
-    <ul class="plain">{reasons}</ul></div></div>
-</div></section>
-<div class="panel" data-s="{E(sid)}"><div class="tabs">{tb}</div><main>
-<p class="blurb">{d["classified"]:,} classified reads &nbsp;·&nbsp;
-{head or "no taxon above NO ACTION"}</p>
-{cohort_block(reg, cids, cfp, meta)}
-{tp}</main></div>
+<div class="panel" data-s="{E(sid)}">
+{page_top(d, [d], meta, reg)}
+{appendix(inner)}</div>
 <footer>Generated by <code>analysis/triage_report.py</code> from
 <code>{E(sid)}_en.html</code> only. Every figure is traceable to the PFI report or to a rule in
 <code>analysis/triage_rules.json</code>. Verdicts are tiers, never diagnoses: CONFIRM means
@@ -1533,7 +1925,8 @@ if the registry has grown since {E(stamp)}.</footer>
     # lost. Ledger codes are stored per taxon: a future longitudinal query wants "every swab where
     # DR1 fired", and recomputing that needs the whole cascade.
     rec = {'sample': sid, 'verdict': sv, 'reasons': sv_why, 'analysed_at': stamp,
-           'classified': d['classified'], 'rules_fp': fp, 'cohort_fp': cfp, 'cohort': cids,
+           'classified': d['classified'], 'rules_fp': fp.rules, 'build_fp': fp.build,
+           'cohort_fp': cfp, 'cohort': cids,
            'site': meta.get(sid, {}), 'bec_version': 1,
            'taxa': [dict(t, ledger=ledger(d, t)) for t in d['taxa']], 'genes': d['genes']}
     with open(base + '_report.json', 'w', encoding='utf-8') as fh:
@@ -1552,9 +1945,7 @@ def build_per_sample(samples, outdir=None, cohort=None):
     `cohort` selects the registry, and therefore what this swab is compared against. Default is
     the field-swab registry; see sample_registry.registry_path for why they must not be pooled.
     """
-    fp = hashlib.sha256(
-        open(os.path.join(ROOT, 'analysis', 'triage_rules.json'), 'rb').read() +
-        open(os.path.join(ROOT, 'analysis', 'triage.py'), 'rb').read()).hexdigest()[:12]
+    fp = fingerprints()
     reg, meta = SR.load(SR.registry_path(cohort)), SR.metadata()
 
     seen = {}
@@ -1565,23 +1956,24 @@ def build_per_sample(samples, outdir=None, cohort=None):
         # cached: pass 2 needs the same counts, and a PFI report is ~7 MB to parse
         seen[sid] = (classified, SR.loads_from_report(g), triage.taxon_names(g))
         prior = reg['samples'].get(sid, {})
-        SR.record(reg, sid, classified, seen[sid][1], prior.get('verdict'), fp,
-                  prior.get('cohort', []), names=seen[sid][2])
+        SR.record(reg, sid, classified, seen[sid][1], prior.get('verdict'), fp.rules,
+                  prior.get('cohort', []), names=seen[sid][2], build_fp=fp.build)
     SR.save(reg)
 
     out = []                                                     # pass 2 - render
     for s in samples:
-        path, d, cids = build_one(s, reg, meta, fp, outdir)
+        path, d, cids = build_one(s, reg, meta, fp, outdir, cohort_name=cohort)
         sv = d['verdict'][0]
-        SR.record(reg, d['id'], seen[d['id']][0], seen[d['id']][1], sv, fp, cids,
-                  names=seen[d['id']][2])
+        SR.record(reg, d['id'], seen[d['id']][0], seen[d['id']][1], sv, fp.rules, cids,
+                  names=seen[d['id']][2], build_fp=fp.build)
         out.append((path, d['id'], sv, len(cids)))
     SR.save(reg)
     return out
 
 
-def build(samples, out=OUT, comparators=None):
-    data = collect(samples, comparators)
+def build(samples, out=OUT, comparators=None, control=None):
+    data = collect(samples, comparators, control=control)
+    reg, meta = SR.load(), SR.metadata()
     # sample_id, not the raw arguments. Under a workflow engine the arguments are localised
     # paths under a task container's _miniwdl_inputs/ that exist only inside that one container,
     # so printing them verbatim under "Reproduce this page offline" gives the reader a command
@@ -1591,14 +1983,8 @@ def build(samples, out=OUT, comparators=None):
            # basename, not a relpath: out is absolute under a workflow engine and
            # relpath(out, ROOT) renders as ../../mnt/... which is noise, not a command.
            ('' if out == OUT else f' --out={os.path.basename(out)}'))
-    fp = hashlib.sha256(
-        open(os.path.join(ROOT, 'analysis', 'triage_rules.json'), 'rb').read() +
-        open(os.path.join(ROOT, 'analysis', 'triage.py'), 'rb').read()).hexdigest()[:12]
+    fp = fingerprints()
     stamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-
-    bar = ''.join(f'<button data-s="{E(d["id"])}" onclick="showSample(\'{E(d["id"])}\')" '
-                  f'aria-selected="{str(k == 0).lower()}">{E(d["sample"])}</button>'
-                  for k, d in enumerate(data))
 
     panels = []
     for k, d in enumerate(data):
@@ -1615,31 +2001,36 @@ def build(samples, out=OUT, comparators=None):
         head = ' &nbsp;·&nbsp; '.join(f'{chip(v)} {counts[v]}' for v in
                                       ['ESCALATE', 'CONFIRM', 'MONITOR', 'NOT_TESTED'] if counts[v])
         sv, sv_why = d['verdict']
-        svcol = {'ESCALATE': C['red'], 'INVESTIGATE': C['red'], 'MONITOR': C['amber'],
-                 'NO ACTION': C['green']}[sv]
         reasons = ''.join(f'<li>{E(r)}</li>' for r in sv_why[:5])
-        banner = (f'<div class="verdict" style="border-color:{svcol}">'
-                  f'<span class="vchip" style="background:{svcol}">{sv}</span>'
-                  f'<div><b>What to do about this swab.</b> Rolled up from the rows below: a '
-                  f'threat-list agent with its marker present gives ESCALATE; a threat-list or '
-                  f'watchlist organism at CONFIRM, or a high-consequence acquired gene, gives '
-                  f'INVESTIGATE.<ul class="plain">{reasons}</ul></div></div>')
+        banner = (f'<div class="verdict" style="border-color:{_sv_col(sv)}">'
+                  f'<div><b>All reasons for {E(sv)}.</b><ul class="plain">{reasons}</ul></div></div>')
+        inner = (f'{banner}<div class="tabs">{tb}</div><main>'
+                 f'<p class="blurb">{d["classified"]:,} classified reads &nbsp;·&nbsp; '
+                 f'{head or "no taxon above NO ACTION"}</p>{tp}</main>')
         panels.append(f'<div class="panel" data-s="{E(d["id"])}"{"" if k == 0 else " hidden"}>'
-                      f'<div class="tabs">{tb}</div><main>{banner}'
-                      f'<p class="blurb">{d["classified"]:,} classified reads &nbsp;·&nbsp; '
-                      f'{head or "no taxon above NO ACTION"}</p>{tp}</main></div>')
+                      f'{page_top(d, data, meta, reg)}{appendix(inner)}</div>')
+
+    # Batch overview: the assay-coverage bar (which agents this library could answer at all)
+    # and one verdict per swab. The old whole-batch cover sheet lives in the batch appendix.
+    overview = ''.join(
+        f'<button data-s="{E(d["id"])}" onclick="showSample(\'{E(d["id"])}\')" '
+        f'aria-selected="{str(k == 0).lower()}">{E(d["sample"])} '
+        f'<span class="svchip" style="background:{_sv_col(d["verdict"][0])};font-size:10.5px;'
+        f'padding:2px 7px">{E(d["verdict"][0])}</span></button>' for k, d in enumerate(data))
 
     doc = f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Triage evidence report — {E(", ".join(d["sample"] for d in data))}</title>
+<title>Triage report — {E(", ".join(d["sample"] for d in data))}</title>
 <style>{CSS}</style></head><body>
-<header><h1>Triage evidence report</h1>
+<header><h1>Triage report</h1>
 <div class="sub">Deterministic gate cascade over PFI metagenomic reports &nbsp;·&nbsp;
 {len(data)} sample{"s" if len(data) != 1 else ""} &nbsp;·&nbsp; generated {E(stamp)}
-&nbsp;·&nbsp; rules {E(fp)}</div></header>
-{flagged_section(data)}
-<div class="bar">{bar}</div>
+&nbsp;·&nbsp; rules {E(fp.rules)} &nbsp;·&nbsp; build {E(fp.build)}</div></header>
+<div class="flwrap" style="padding-top:14px">{coverage_fig(data)}</div>
+<div class="bar">{overview}</div>
 {''.join(panels)}
+<details class="appx"><summary>Batch appendix &mdash; flagged species across all swabs, ranked</summary>
+{flagged_section(data)}</details>
 <footer>Generated by <code>analysis/triage_report.py</code> from
 <code>&lt;sample&gt;_en.html</code> only. Every figure is traceable to the PFI report or to a rule
 in <code>analysis/triage_rules.json</code>. Verdicts are tiers, never diagnoses: CONFIRM means

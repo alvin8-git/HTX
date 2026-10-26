@@ -49,6 +49,30 @@ def observed(g):
             for r in g['indentification_DNA']['speciesData']['data']}
 
 
+def check(sample, g):
+    """One standard as a run-level control: recovery, quiet, and one line to stamp on a batch.
+
+    Judged with no comparators - a control is never compared against the swabs it travels with.
+    `ok` requires all ten members recovered and no ESCALATE; the false-positive taxa above the
+    floor are listed so a reader can see the usual Shigella cross-mapping is the usual size.
+    """
+    obs = observed(g)
+    got = sum(1 for name, _, _, aliases in TRUTH
+              if any(c in obs for c in [name] + aliases))
+    genes = triage.triage_genes(g)
+    taxa = triage.triage_taxa(sample, g, {}, genes, comparators=False)
+    esc = [t['taxon'] for t in taxa if t['verdict'] == 'ESCALATE']
+    fp = sorted(((v[0], k) for k, v in obs.items() if k not in EXPECTED and v[0] >= FP_READ_FLOOR),
+                reverse=True)
+    ok = got == len(TRUTH) and not esc
+    label = os.path.basename(sample.rstrip('/')).replace('_en.html', '')
+    line = (f'{"PASS" if ok else "FAIL"} {label}: {got}/{len(TRUTH)} members recovered, '
+            f'{len(esc)} ESCALATE, {len(fp)} non-member taxa above {FP_READ_FLOOR:,} reads'
+            + (f' ({", ".join(k for _, k in fp[:3])})' if fp else ''))
+    return {'ok': ok, 'detected': got, 'expected': len(TRUTH), 'escalations': esc,
+            'false_positives': [k for _, k in fp], 'label': label, 'line': line}
+
+
 def main():
     reports = {s: triage.load_report(s) for s in SAMPLES}
     obs = {s: observed(g) for s, g in reports.items()}

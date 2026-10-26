@@ -55,7 +55,7 @@ docker run --rm htx-triage:1.0.0 triage --selftest
 
 # which rules am I about to use?
 docker run --rm htx-triage:1.0.0 triage --version
-# htx-triage 1.0.0  rules=257ef531791a
+# htx-triage 1.0.0  rules=ca44d8aee3ec  build=15805f877638
 
 # a batch, reports mounted from the host
 docker run --rm -v "$PWD:/data" htx-triage:1.0.0 \
@@ -216,7 +216,8 @@ done
 ```
 
 All five TSVs are byte-identical, host and container, and identical again through the full WDL
-workflow. Verdicts: `MONITOR`, `NO ACTION`, `NO ACTION`, `INVESTIGATE`, `INVESTIGATE`.
+workflow. Verdicts: `MONITOR`, `NO ACTION`, `NO ACTION`, `INVESTIGATE`, `INVESTIGATE` (today's
+vocabulary: `REVIEW`, `NO ACTION`, `NO ACTION`, `REVIEW`, `REVIEW` — see `docs/reference_triage.md`).
 
 Getting there needed three portability fixes, each of which was a real bug for any caller outside
 this repo:

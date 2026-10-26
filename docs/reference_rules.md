@@ -8,6 +8,38 @@ Since the taxid keying change this is advisory, not fatal: `triage.py` matches o
 `Taxid` first and falls back to the name. A `NO - name mismatch` row still fires,
 but only for reports that carry a taxid column.
 
+The first table is the **decision table**: every rule the engine applies, one row
+each, in the order the gates run, with the live threshold values. Read it top to
+bottom and you have read the engine. The tables after it are the lists those rules
+look things up in.
+
+## decision_table — 22 entries
+
+| id | when | input | test | then | why | source |
+|---|---|---|---|---|---|---|
+| QC.FLOOR | every swab | Classified_Read | < 1,000,000 | flag QC-LIMITED (never a verdict) | a negative from a thin swab carries no weight | independent review 2026-10-26 |
+| QC.RNA | every swab | showRNA | false | flag NOT-TESTED; one standing row for all RNA agents | absence of a test is not absence | assay design |
+| GENE.ONE_PER_GROUP | every MEGARes row | Group | collapse alleles | keep the allele best on breadth AND depth | one gene recruits reads onto several accessions | gate 3 |
+| GENE.BREADTH_FLOOR | every gene | Coverage(%) | < 50.0 | NO_ACTION | a fragment is not a gene | gate 4 |
+| GENE.INTRINSIC | rRNA / efflux / intrinsic / environmental class | amr_classes, mechanism_classes | class in suppressed set | NO_ACTION | presence is the default state | gate 5 |
+| GENE.ACQUIRED | class = acquired, short reads | Coverage(%), Depth | >= 80.0 and >= 5.0 -> full; >= 55.0 and >= 10.0 -> partial | CONFIRM (ceiling for any gene) | breadth separates a gene from a conserved fragment | class_thresholds.acquired |
+| TAX.RNA | threat-list agent, genome = RNA, DNA library | threat_list.genome | RNA | NOT_TESTED | structurally undetectable | gate 2 |
+| TAX.READ_FLOOR | every species row | Real Read | < 50 | listed -> NO_ACTION with the count; unlisted -> drop | below this a call is cross-mapping or background | gate 1 |
+| TAX.INFLATION | every species row | Estimate Read / Real Read | > 10 | judge on Real Read only; note it | Bracken redistribution inflates estimates | gate 7 |
+| TAX.COMPARATORS | every swab | site_id prior runs | >= 3 runs at this site | compare against own history; else every other sample | is it new HERE, not new anywhere | gate 8, 2026-10-26 |
+| TAX.ENRICHED | listed or unlisted taxon, comparators present | reads per million vs max comparator | >= 5.0x | candidate (unlisted -> MONITOR; listed -> may escalate) | site-specific, not batch background | gate 8 |
+| TAX.GENUS_RATIO | listed taxon, comparators present | species share of its genus here / best elsewhere | reported always; gates only if genus_ratio_min is set | batch-robust second opinion on TAX.ENRICHED | a kit artefact moves the whole genus together | gate 8, 2026-10-26 |
+| TAX.NO_COMPARATORS | watchlist taxon, no comparators | Abundance | >= 1.0% | counts as enriched | the only criterion measurable inside one sample | gate 8 fallback |
+| TAX.KITOME | unlisted taxon, no comparators | genus | in kitome_genera | drop | reagent contaminants never enrich | gate 8 fallback |
+| TAX.NEAR_NEIGHBOUR | threat-list agent | near-neighbour reads | >= this taxon | CONFIRM -> NO_ACTION | cross-mapping cannot be excluded | gate 9 |
+| TAX.MARKER | threat-list agent with markers | VFDB Virulence Factor, Coverage(%) | pattern match at >= 50.0% breadth | present -> ESCALATE; absent -> NO_ACTION | the marker is what makes the agent a threat | gate 10a |
+| TAX.MARKER_POWER | threat-list agent with markers | P(a read lands on the marker) | < 0.9 | absent -> NOT_TESTED instead of NO_ACTION | a test with no power is not evidence | gate 10a |
+| TAX.SUPPORTING | threat-list agent with supporting markers | VFDB rows of this species | present | ESCALATE; absent changes nothing | one-way: VFDB coverage cannot be certified | gate 10b |
+| TAX.SUBSPECIES | threat-list agent with subspecies_required at CONFIRM | subspeciesData | notifiable serovar named, Real Read >= 50 | keep CONFIRM; else MONITOR | the threat is defined below species rank | gate 10c, 2026-10-26 |
+| TAX.WATCHLIST_ESC | watchlist taxon, enriched | co-located acquired gene class, host share | class in escalating_classes and share >= 0.2 or tops pool | CONFIRM (culture with AST) | co-location, not co-attribution | gate 1b |
+| TAX.WATCHLIST_MARKER | watchlist taxon with markers | VFDB rows of this species | present | CONFIRM; absent changes nothing | one-way; C. diphtheriae tox | gate 1b, 2026-10-26 |
+| SAMPLE.VERDICT | every swab | row verdicts | ESCALATE row -> ESCALATE; CONFIRM row, high-consequence gene, site-enriched listed taxon, or listed taxon topping a CONFIRM gene -> REVIEW; else NO ACTION | NO ACTION / REVIEW / ESCALATE | three responses: file, look, send a team | sample_verdict, 2026-10-26 |
+
 ## threat_list — 46 entries
 
 | Species | Taxid | CDC tier | Genome | Confirmatory markers (two-way) | Supporting markers (one-way) | Gate 10 mode | Subspecies required | Near neighbours | In PFIDB v5 |
@@ -59,7 +91,7 @@ but only for reports that carry a taxid column.
 | Severe acute respiratory syndrome-related coronavirus | 694009 | C | RNA | - | - | none |  | - | yes |
 | Tick-borne encephalitis virus | 11084 | C | RNA | - | - | none |  | - | yes |
 
-## clinical_watchlist — 24 entries
+## clinical_watchlist — 25 entries
 
 | Species | Taxid | Priority | Escalating AMR classes | Note | In PFIDB v5 |
 |---|---|---|---|---|---|
@@ -69,6 +101,7 @@ but only for reports that carry a taxid column.
 | Candida auris | 498019 | WHO critical (fungal) |  | WHO fungal priority pathogen, critical group. Species identification alone warrants culture; MEGARes does not cover antifungals, so no escalating class applies. | NO - name mismatch |
 | Candida haemulonii | 45357 | WHO (fungal) |  | C. auris near-neighbour in the C. haemulonii complex; misidentification between them is well documented, so the call is worth a look on its own. | NO - name mismatch |
 | Citrobacter freundii | 546 | WHO critical | betalactams, Aminoglycosides, Fluoroquinolones | Enterobacterales, chromosomal AmpC. | yes |
+| Corynebacterium diphtheriae | 1717 | notifiable |  | Diphtheria is notifiable in Singapore. Only toxigenic strains (tox, diphtheria toxin, VFDB) matter; non-toxigenic C. diphtheriae is skin and throat flora. Added 2026-10-26: WBM179 carried 1,553 reads at 8x the median of the other swabs with no row on the page. The marker is ONE-WAY: tox present lifts the row to CONFIRM (culture); absent changes nothing, because VFDB coverage of tox cannot be certified from the report. No resistance class escalates this organism. | yes |
 | Enterobacter cloacae | 550 | WHO critical | betalactams, Aminoglycosides, Fluoroquinolones | ESKAPE Enterobacterales, AmpC and carbapenemase host. | yes |
 | Enterobacter hormaechei | 158836 | WHO critical | betalactams, Aminoglycosides, Fluoroquinolones | Enterobacter cloacae complex. | yes |
 | Enterococcus faecalis | 1351 | WHO high | Glycopeptides, Aminoglycosides | Vancomycin-resistant enterococci. Same aac(6') intrinsic caveat as E. faecium. | yes |
@@ -88,32 +121,33 @@ but only for reports that carry a taxid column.
 | Stenotrophomonas maltophilia | 40324 | WHO medium | betalactams, Sulfonamides | Intrinsically multi-resistant opportunist; co-trimoxazole is the mainstay, so sulfonamide genes matter. | yes |
 | Streptococcus pneumoniae | 1313 | WHO medium | betalactams, MLS, Fluoroquinolones | Penicillin-non-susceptible S. pneumoniae, WHO medium priority. | yes |
 
-## marker_patterns — 24 entries
+## marker_patterns — 25 entries
 
 | Marker | Regex | Used by |
 |---|---|---|
 | bimA | \bbimA\b | Burkholderia mallei (one-way), Burkholderia pseudomallei (one-way) |
-| bont | (bont\|botulinum neurotoxin\|ntnh) | Clostridium botulinum (two-way) |
+| bont | \bbont[A-G]?\b\|botulinum neurotoxin\|\bntnh\b | Clostridium botulinum (two-way) |
 | bsa | \bbsa[A-Z]\d?\b\|\bbip[BD]\b\|\bbopE\b | Burkholderia mallei (one-way), Burkholderia pseudomallei (one-way) |
 | btp | \bbtp[AB]\b\|\btcpB\b | Brucella melitensis (one-way), Brucella abortus (one-way), Brucella suis (one-way) |
 | bvr | \bbvr[RS]\b | Brucella melitensis (one-way), Brucella abortus (one-way), Brucella suis (one-way) |
-| caf1 | caf1 | Yersinia pestis (two-way) |
-| ctxA | ctxA | Vibrio cholerae (two-way) |
-| ctxB | ctxB | Vibrio cholerae (two-way) |
+| caf1 | \bcaf1[AMR]?\b | Yersinia pestis (two-way) |
+| ctxA | \bctxA[BC]?\b | Vibrio cholerae (two-way) |
+| ctxB | \bctxB\b | Vibrio cholerae (two-way) |
 | dotAB | \bdot[AB]\b\|\bicm[STVWX]\b | Coxiella burnetii (one-way) |
 | eae | \beae\b | Escherichia coli (two-way) |
 | esx | \besx[AB]\b\|\besat-?6\b\|\bcfp-?10\b | Mycobacterium tuberculosis (one-way) |
-| etx | (etx\|epsilon toxin) | Clostridium perfringens (two-way) |
-| fopA | fopA | Francisella tularensis (two-way) |
-| lcrV | lcrV | Yersinia pestis (two-way) |
+| etx | \betx[A-D]?\b\|epsilon toxin | Clostridium perfringens (two-way) |
+| fopA | \bfopA\b | Francisella tularensis (two-way) |
+| lcrV | \blcrV\b | Yersinia pestis (two-way) |
 | omp2531 | \bomp(25\|31)\b | Brucella melitensis (one-way), Brucella abortus (one-way), Brucella suis (one-way) |
-| pXO1 | (pag\|lef\|cya\|pXO1) | Bacillus anthracis (two-way) |
-| pXO2 | (cap[ABCDE]\|acpA\|pXO2) | Bacillus anthracis (two-way) |
+| pXO1 | \b(pagA?\|lef\|cya)\b\|\bpXO1\b | Bacillus anthracis (two-way) |
+| pXO2 | \b(cap[ABCDE]\|acpA\|dep)\b\|\bpXO2\b | Bacillus anthracis (two-way) |
 | pla | \bpla\b | Yersinia pestis (two-way) |
 | seb | \bseb\b | Staphylococcus aureus (two-way) |
-| stx1 | stx1 | Shigella dysenteriae (two-way), Escherichia coli (two-way) |
-| stx2 | stx2 | Shigella dysenteriae (two-way), Escherichia coli (two-way) |
-| tul4 | (tul4\|lpnA) | Francisella tularensis (two-way) |
+| stx1 | \bstx1[AB]?\b | Shigella dysenteriae (two-way), Escherichia coli (two-way) |
+| stx2 | \bstx2[A-F]?\b | Shigella dysenteriae (two-way), Escherichia coli (two-way) |
+| tox | \btox\b\|diphtheria toxin | - unused - |
+| tul4 | \b(tul4\|lpnA)\b | Francisella tularensis (two-way) |
 | tvi | \btvi[A-E]\b\|\bviaB\b | Salmonella enterica (one-way) |
 | wcb | \bwcb[A-Z]\b | Burkholderia mallei (one-way), Burkholderia pseudomallei (one-way) |
 
@@ -468,21 +502,29 @@ but only for reports that carry a taxid column.
 | Brucella anthropi | Formerly Ochrobactrum anthropi, moved into Brucella in 2020. Ubiquitous reagent contaminant, NOT zoonotic brucellosis. Not a CDC agent. |
 | Staphylococcus argenteus | Formerly part of S. aureus. Cross-maps with S. aureus reads. |
 
-## thresholds — 21 entries
+## thresholds — 29 entries
 
 | Setting | Value |
 |---|---|
 | _escalation_host_share_why | Co-location alone was enough to escalate a watchlist organism to CONFIRM: the gene was in the sample and the genus was A documented host. That let Serratia marcescens (WBM185) escalate on a CTX-M whose host pool it holds 1.3% of - 77 organisms could carry it and Serratia was one of the smallest. Escalation now also requires the organism to be the MOST ABUNDANT documented host in the sample, or to hold at least this share of the pool. Below that, naming it is arbitrary among the candidates. Set 2026-08-12; A. baumannii in WBM232 holds 21% AND tops its pool, so the one operationally significant finding in the batch is unaffected. |
+| _genus_ratio_min_why | Within-genus ratio: this species' share of its genus here, over its best share in any comparator. A reagent-kit artefact moves a whole genus together; a real site finding moves one species against its own genus (A. baumannii in WBM232: 12.7x by this statistic, while the rest of Acinetobacter is at its lowest there). Always computed and reported beside the cross-sample fold. null = report only. Set a number (e.g. 2.0) to ALSO require it for a watchlist organism to count as enriched, once a second batch exists to calibrate against. |
+| _marker_breadth_floor_why | A VFDB row counts as a confirmatory marker only above this breadth. There was no floor at all: marker_present fired on a row existing, and in the five ZymoBIOMICS standards the Bacillus anthracis capB row sits at 2.73% breadth / 0.20x depth - 2.7% of the gene at a fifth of a read deep, which is cross-mapping from the B. subtilis in the mix, not a capsule operon. Gate 4 already refuses an acquired resistance gene below 50% breadth; the gate that produces ESCALATE was the one with no bar. Same 50% as gene_breadth_floor, kept separate so it can move on its own. A row with no Coverage column is accepted: some report shapes omit it, and refusing to fire would turn a missing column into a negative on a Category A agent. |
 | _marker_power_min_why | Gate 10a is two-way: a confirmatory marker present raises ESCALATE, absent downgrades to NO_ACTION. The downgrade arm is only valid if the marker COULD have been seen. At 11 reads of V. cholerae (0.0004x genome coverage) the chance of a read landing on ctxA/ctxB is 0.3%, so 'ctxA/ctxB absent' was the expected outcome whether or not the organism was toxigenic - the test had no power and the engine reported it as evidence. Below this power the marker reverts to ONE-WAY (present still escalates, absent changes nothing) and the row is NOT_TESTED: 'marker not assessable at this coverage'. Set 2026-08-12 at 0.90. |
+| _qc_classified_floor_why | Below this many classified reads a swab is flagged QC-LIMITED. The flag never moves a verdict: it says a NEGATIVE result from this swab carries little weight. WBM156 (622,642 classified, 91% host) carried a fifth of WBM232's depth and its short hit list read as a clean site. Floor set 2026-10-26 from the independent review; the four deeper swabs sit at 2.0-3.1M. |
+| _site_history_min_runs_why | Gate 8 compares a swab FIRST against prior runs at the same site_id (analysis/sample_metadata.tsv), and only falls back to every other site when the site has fewer prior runs than this. A restroom tap is not a trolley handle, and a cross-site fold confounds place with processing batch; a site's own history is immune to the first and, over runs, averages out the second. Three is the fewest points at which a maximum is a baseline rather than a single observation. |
 | bracken_inflation_ratio | 10 |
 | enrichment_fold | 5.0 |
 | escalation_host_share | 0.2 |
 | gene_breadth_confident | 80.0 |
 | gene_breadth_floor | 50.0 |
 | gene_depth_confident | 5.0 |
+| genus_ratio_min | None |
 | long_read_length_bp | 1000.0 |
+| marker_breadth_floor | 50.0 |
 | marker_power_min | 0.9 |
 | min_real_reads | 50 |
+| qc_classified_floor | 1000000 |
+| site_history_min_runs | 3 |
 | unique_fraction_floor | 0.15 |
 | unique_probe_reads | 40000 |
 | watchlist_min_abundance_no_comparators | 1.0 |

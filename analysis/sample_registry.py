@@ -117,6 +117,33 @@ def metadata():
     return out
 
 
+def site_ids(reg):
+    """{sample_id: site_id} for every sample the registry or the metadata sidecar knows.
+
+    The registry entry wins when it carries one (it was stamped at analysis time); the sidecar
+    fills in entries written before site_id was stored. Absent is absent.
+    """
+    meta = metadata()
+    out = {}
+    for sid in set(reg.get('samples', {})) | set(meta):
+        site = reg.get('samples', {}).get(sid, {}).get('site_id') or meta.get(sid, {}).get('site_id')
+        if site:
+            out[sid] = site
+    return out
+
+
+def site_context(reg):
+    """(site_of, history): site per sample, and the registry's prior runs per site in analysis
+    order. This is what lets gate 8 ask "is this new HERE" instead of "is this new anywhere"."""
+    site_of = site_ids(reg)
+    history = collections.defaultdict(list)
+    for sid, rec in sorted(reg.get('samples', {}).items(),
+                           key=lambda kv: (kv[1].get('analysed_at', ''), kv[0])):
+        if site_of.get(sid):
+            history[site_of[sid]].append(sid)
+    return site_of, history
+
+
 def cohort_ids(reg, exclude):
     """Every sample in the registry except the one being analysed.
 
@@ -157,20 +184,34 @@ def fingerprint(reg, ids):
     return hashlib.sha256('|'.join(parts).encode()).hexdigest()[:6]
 
 
-def record(reg, sample_id, classified, loads, verdict, rules_fp, cohort, names=None):
+def record(reg, sample_id, classified, loads, verdict, rules_fp, cohort, names=None,
+           build_fp=None):
     """Write one sample's contribution to the baseline, plus what it was judged against.
 
     `names` is {taxid: display name}, merged into one registry-wide map. Without it the stored
     loads are a few thousand bare integers and nobody can audit the file by reading it.
+
+    `rules_fp` is the rule file's hash, the same number `triage.py --version` prints. `build_fp`
+    adds the engine code. Entries written before 2026-10-26 carry the COMBINED hash under
+    `rules_fp` and no `build_fp` at all, because the caller computed one number and called it
+    rules - so a `rules_fp` with no `build_fp` beside it is the old meaning, not a matching rule
+    file. The key is left in place rather than renamed: these files are durable state in git, and
+    a rename would quietly orphan every historical entry.
     """
     reg['version'] = FORMAT
     if names:
         reg.setdefault('taxon_names', {}).update(names)
+    # site_id is copied in from the sidecar so the registry stays self-describing once a report
+    # is archived; the sidecar remains the hand-maintained source and is never written here.
+    site = metadata().get(sample_id, {}).get('site_id') or \
+        reg['samples'].get(sample_id, {}).get('site_id')
     reg['samples'][sample_id] = {
         'classified': int(classified),
         'verdict': verdict,
+        'site_id': site,
         'analysed_at': datetime.datetime.now().strftime('%Y-%m-%d %H:%M'),
         'rules_fp': rules_fp,
+        'build_fp': build_fp,
         'cohort': list(cohort),
         'cohort_fp': fingerprint(reg, cohort),
         # real reads per taxon; zero-read taxa contribute nothing to an enrichment and are dropped

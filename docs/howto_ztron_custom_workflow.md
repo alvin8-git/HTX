@@ -48,7 +48,7 @@ from the platform's task log:
 ```bash
 docker rmi htx-triage:1.0.0
 docker load -i htx_triage_1_0_0.tar
-docker run --rm htx-triage:1.0.0 triage --version         # htx-triage 1.0.0  rules=257ef531791a
+docker run --rm htx-triage:1.0.0 triage --version   # htx-triage 1.0.0  rules=ca44d8aee3ec  build=15805f877638
 ```
 
 The image is still tagged `htx-triage:1.0.0` after loading — hyphens and dots are fine in a Docker
@@ -190,7 +190,8 @@ one node give five verdicts and a live comparison; the same report alone gives t
 
 Verified against this exact layout: five reports in, five TSVs and one report out, verdicts
 `MONITOR`, `NO ACTION`, `NO ACTION`, `INVESTIGATE`, `INVESTIGATE` — identical to running the five
-files by name.
+files by name. (Verified before the 2026-10-26 merge to three sample verdicts; the same run now
+reads `REVIEW`, `NO ACTION`, `NO ACTION`, `REVIEW`, `REVIEW`.)
 
 ### Why all reports go to ONE component instance
 

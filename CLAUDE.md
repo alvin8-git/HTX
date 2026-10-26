@@ -28,10 +28,11 @@ python3 analysis/triage.py --html [WBM185 ...]  # -> analysis/triage_report.html
 python3 analysis/triage.py --per-sample ...     # one standalone report per sample
 python3 analysis/triage.py --cohort stool ...   # pick a registry: default / zymo / stool
 python3 analysis/triage.py --independent        # no comparators at all (gate 8 degrades; see sample_registry.py docstring)
+python3 analysis/triage.py --control Zymo/Zymo_Std_R1 ...  # stamp a same-run ZymoBIOMICS control PASS/FAIL on every output
 python3 analysis/triage.py --with-fastq         # extra FASTQ-only gates, outside the input contract
 python3 analysis/triage.py --version            # prints engine version + rules fingerprint
 
-python3 analysis/export_rules.py                # triage_rules.json -> docs/reference_rules.md + analysis/triage_rules.xlsx (generated, never hand-edit)
+python3 analysis/export_rules.py                # triage_rules.json -> docs/reference_rules.md (decision table first) + analysis/triage_rules.xlsx (generated, never hand-edit)
 python3 analysis/extract.py WBM*_en.html        # HTML -> analysis/WBM<id>.json   (table-level analysis path)
 python3 analysis/analyze.py                     # -> species_all.tsv, amr.tsv, vf.tsv
 python3 analysis/build_deck.py                  # -> HTX_biosurveillance_briefing.pptx
@@ -56,8 +57,10 @@ instead; both feed `triage.load_report()`.
 **Gate cascade.** `triage.py` applies the numbered gates described in
 `docs/automated_triage_design.md` (reference for every threshold: `docs/reference_triage.md`).
 Two ladders: per-row tiers `NO_ACTION < MONITOR < CONFIRM < ESCALATE` (`TIERS`), and per-sample
-verdicts `NO ACTION < MONITOR < INVESTIGATE < ESCALATE` (`SAMPLE_VERDICTS`, derived from the rows
-by `sample_verdict()`). `NOT_TESTED` sits outside both (absence of evidence — this is a DNA-only assay, so RNA viruses are never "absent") and
+verdicts `NO ACTION < REVIEW < ESCALATE` (`SAMPLE_VERDICTS`, derived from the rows by
+`sample_verdict()`; `LEGACY_VERDICTS` maps the pre-2026-10-26 MONITOR/INVESTIGATE). Two flags
+sit beside the sample verdict and never move it: `QC-LIMITED` and `NOT-TESTED` (`qc_flags()`).
+`NOT_TESTED` sits outside both ladders (absence of evidence — this is a DNA-only assay, so RNA viruses are never "absent") and
 must never be compared against or downgraded. Each output row carries the rule that produced it.
 
 **Rules vs code.** `analysis/triage_rules.json` holds all thresholds and biology (threat list,
@@ -66,7 +69,10 @@ sets, AMR host hints). Change biology there, not in Python. `--version` prints a
 this file so runs record which rules produced them. `docs/reference_rules.md` and
 `triage_rules.xlsx` are generated from it by `export_rules.py`.
 
-**Cohort registry (gate 8).** "Unusually abundant *here*" needs comparators. `sample_registry.py`
+**Cohort registry (gate 8).** "Unusually abundant *here*" needs comparators. `batch_context()` in
+`triage.py` builds the comparator pool ONE way for the TSV and HTML paths: a site's own prior runs
+when it has at least three (`site_id` from the metadata sidecar, stored in the registry), else every
+other sample. `within_genus_ratio()` is reported beside the fold. `sample_registry.py`
 maintains one registry per cohort — `analysis/sample_registry.json` (field swabs),
 `sample_registry_zymo.json`, `sample_registry_stool.json` — written by the pipeline, never by
 hand, and tracked in git as durable state. `analysis/sample_metadata.tsv` is the hand-written
@@ -74,7 +80,9 @@ sidecar (site metadata; source of truth is `sampleInfo.xlsx`). A single-sample r
 batch run filtered to one sample: without comparators verdicts and row counts change.
 
 **Evidence report.** `triage_report.py` renders the self-contained HTML (inlined CSS/JS, opens
-from disk). It uses the BEC v1 evidence-code scheme (`[DSMPU][RL]<n>` / `U<n>`), deliberately
+from disk): one page per swab (header, verdict strip with flags, max three cards with a criteria
+checklist, four inline-SVG panels) and the full former report behind `<details class="appx">`.
+`page_top()` is shared by the batch and per-sample builders. It uses the BEC v1 evidence-code scheme (`[DSMPU][RL]<n>` / `U<n>`), deliberately
 distinct from ACMG codes. AMR→host associations are literature hints rendered INFERRED and never
 feed a verdict (MEGARes has no organism column).
 

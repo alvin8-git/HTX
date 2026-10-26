@@ -48,6 +48,24 @@ def rules_fingerprint():
     with open(os.path.join(ROOT, 'analysis', 'triage_rules.json'), 'rb') as fh:
         return hashlib.sha256(fh.read()).hexdigest()[:12]
 
+
+def build_fingerprint():
+    """Short hash of the rule file AND the engine, i.e. everything that decides a verdict.
+
+    It is deliberately NOT the same number as rules_fingerprint(), because it answers a different
+    question: "which rules" vs "which rules on which code". The HTML report used to compute this
+    inline, twice, and print it under the label `rules` - so the identifier the README tells a
+    reader to record with their results (`--version`, rules only) never matched the one stamped on
+    the page they were reading. Two numbers, one name, and no way to tell which you were holding.
+    Both are now reported, each under its own label, and both come from here.
+    """
+    import hashlib
+    h = hashlib.sha256()
+    for name in ('triage_rules.json', 'triage.py'):
+        with open(os.path.join(ROOT, 'analysis', name), 'rb') as fh:
+            h.update(fh.read())
+    return h.hexdigest()[:12]
+
 # The optional-extension switch, set by --with-fastq. False is the contract: the HTML report is the
 # whole input, and an importer that never touches this flag gets a pure report-only interpretation.
 WITH_FASTQ = False
@@ -202,6 +220,29 @@ def gate_integrity(sample, g):
     return problems, clas
 
 
+# ---------------------------------------------------------------- gate 0: QC flags
+# Flags, not verdicts. They sit beside the sample verdict and never move it: QC-LIMITED says a
+# NEGATIVE from this swab carries little weight, NOT-TESTED says a class of agents was never in
+# scope. Both are properties of the run, so they are stated once per sample rather than once per
+# row, and a reader can never mistake either for "this site is fine".
+
+def qc_flags(g, classified):
+    """[(flag, reason)] for one report. Empty means the run is deep enough to believe a negative."""
+    out = []
+    floor = TH['qc_classified_floor']
+    if classified < floor:
+        stat = g['basicSummary']['readsQc']['data'][0]
+        host = str(stat.get('Host_Read', '')).split('(')[-1].rstrip(')') if '(' in str(stat.get('Host_Read', '')) else ''
+        out.append(('QC-LIMITED', f'{classified:,} classified reads, below the {floor:,} floor'
+                    + (f' ({host} host)' if host else '')
+                    + ' - a negative result from this swab carries little weight; re-swab before '
+                      'reading any absence'))
+    if not g.get('showRNA'):
+        out.append(('NOT-TESTED', 'DNA-only library: every RNA-genome agent on the threat list is '
+                                  'untested, not absent'))
+    return out
+
+
 # ---------------------------------------------------------------- gate 6: amplification
 # OPTIONAL EXTENSION - the only gate that reads outside the HTML report, and the only one that is
 # off by default. The PFI report gives read counts, never molecule counts: one fragment amplified
@@ -277,13 +318,102 @@ def loads_by_taxon(reports, classified):
     return out
 
 
-def enrichment(loads, taxon, sample):
-    """Fold-enrichment of this sample's load over the highest of the others. inf = seen only here."""
+def enrichment(loads, taxon, sample, pool=None):
+    """Fold-enrichment of this sample's load over the highest of the comparators. inf = seen only
+    here. `pool` names the comparator samples; None means every other sample in `loads`."""
     per = loads[taxon]
-    others = [v for s, v in per.items() if s != sample and v > 0]
+    others = [v for s, v in per.items() if s != sample and v > 0 and (pool is None or s in pool)]
     if not others:
         return float('inf')
     return per.get(sample, 0.0) / max(others)
+
+
+def within_genus_ratio(loads, names, taxon, sample, pool=None):
+    """This species' share of its genus here, over its best share in any comparator.
+
+    A kit artefact moves a whole genus together; a real site finding moves one species against
+    its own genus. A. baumannii in WBM232 is 6.0x by cross-sample fold and 12.7x by this - the
+    rest of Acinetobacter is at its LOWEST there. P. rettgeri in WBM156 is the entire Providencia
+    signal, so the ratio is undefined and the function says so with None rather than inf.
+    Reported beside the fold on every listed row; gates only when thresholds.genus_ratio_min is set.
+    """
+    genus = (names or {}).get(taxon, '').split(' ')[0]
+    if not genus:
+        return None
+    members = [k for k, n in names.items() if n.split(' ')[0] == genus and k in loads]
+    if len(members) < 2:
+        return None
+    share = {}
+    for s in {s for k in members for s in loads[k]}:
+        if s != sample and pool is not None and s not in pool:
+            continue
+        tot = sum(loads[k].get(s, 0.0) for k in members)
+        if tot > 0:
+            share[s] = loads[taxon].get(s, 0.0) / tot
+    here = share.get(sample)
+    others = [v for s, v in share.items() if s != sample and v > 0]
+    if here is None or not others:
+        return None
+    return here / max(others)
+
+
+def comparator_pool(site, own, all_keys, self_key):
+    """Which samples gate 8 compares one swab against, and why. Returns (pool, basis).
+
+    Own site first: when the site has at least site_history_min_runs prior runs, the pool is those
+    runs and nothing else. Otherwise every other sample (this batch plus the registry), which is
+    the only mode the engine had before 2026-10-26 and is still the right one for a site seen for
+    the first time. `own` lists the keys of prior runs at `site`; keys are whatever `loads` is
+    keyed by (a path for a batch member, a sample id for a registry entry).
+    """
+    own = [k for k in own if k != self_key and k in all_keys]
+    if site and len(own) >= TH['site_history_min_runs']:
+        return set(own), f'site history ({len(own)} prior runs at {site})'
+    rest = {k for k in all_keys if k != self_key}
+    note = (f'; {len(own)} prior run(s) at this site, own history applies from '
+            f'{TH["site_history_min_runs"]}') if site else '; site not captured'
+    return rest, f'cross-site ({len(rest)} comparators{note})'
+
+
+def batch_context(samples, reports, classified, comparators=None, cohort_name=None,
+                  cohort_loads=None):
+    """Everything gate 8 needs for a batch, built ONE way for the TSV path and the HTML path.
+
+    Returns (loads, names, pools, comparators, n_registry). `pools` is {raw sample key:
+    (comparator set, basis string)}. Keys in `loads` are the raw arguments for this batch and
+    sample ids for registry entries, which is why comparator_pool works on opaque keys.
+    """
+    import sample_registry as SR                # local: sample_registry imports this module
+    ids = {sample_id(s): s for s in samples}
+    loads = loads_by_taxon(reports, classified)
+    names = {}
+    for g in reports.values():
+        names.update(taxon_names(g))
+    reg = SR.load(SR.registry_path(cohort_name))
+    if comparators is False:
+        coh = {}
+    elif cohort_loads is not None:
+        coh = cohort_loads
+    else:
+        coh = registry_loads(cohort_name, set(ids))
+    for taxon, per in coh.items():
+        loads[taxon].update(per)
+    for k, v in reg.get('taxon_names', {}).items():
+        names.setdefault(k, v)
+    if comparators is None:
+        comparators = len(samples) > 1 or bool(coh)
+    reg_ids = {s for per in coh.values() for s in per}
+    all_keys = set(ids.values()) | reg_ids
+    site_of, history = SR.site_context(reg)
+    pools = {}
+    for sid, raw in ids.items():
+        if not comparators:
+            pools[raw] = (None, 'no comparators')
+            continue
+        site = site_of.get(sid)
+        own = [ids.get(x, x) for x in history.get(site, [])] if site else []
+        pools[raw] = comparator_pool(site, own, all_keys, raw)
+    return loads, names, pools, comparators, len(reg_ids)
 
 
 # ---------------------------------------------------------------- markers
@@ -646,11 +776,24 @@ def context_line(name, ctx, present, kind='', entry=None):
             f'attributed to any species and none of them changed this verdict')
 
 
-def triage_taxa(sample, g, loads, genes, comparators=True):
+def triage_taxa(sample, g, loads, genes, comparators=True, pool=None, names=None):
     """comparators=False when there is nothing to compare against (a single novel sample, or a set
     of replicates of one community). Gate 8 is then inert, and non-threat taxa are reported on read
-    count alone. Threat-list gating is unaffected — it never depended on cross-sample context."""
+    count alone. Threat-list gating is unaffected — it never depended on cross-sample context.
+
+    `pool` is the comparator set from comparator_pool (None = every other sample in `loads`);
+    `names` is {taxon_key: display name} across loads, needed for the within-genus ratio."""
     results = []
+    names = names or {}
+    sub_rows = (g.get('indentification_DNA', {}).get('subspeciesData') or {}).get('data', []) \
+        if isinstance(g.get('indentification_DNA', {}).get('subspeciesData'), dict) else []
+
+    def genus_line(key):
+        gr = within_genus_ratio(loads, names, key, sample, pool) if comparators else None
+        if gr is None:
+            return None, ''
+        return gr, (f'within-genus ratio {gr:.1f}x' if gr != float('inf') else
+                    'within-genus ratio: genus seen only here')
     read_len = read_length(g)
     threat, notes = RULES['threat_list'], RULES['taxonomy_notes']
     watch = {k: v for k, v in RULES.get('clinical_watchlist', {}).items() if k != '_comment'}
@@ -728,8 +871,9 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
                                     f'NO_ACTION is supportable'])})
                 continue
             uf, _n = unique_fraction(sample, name)
-            fold = enrichment(loads, key, sample) if comparators else None
-            base['unique'], base['fold'] = uf, fold
+            fold = enrichment(loads, key, sample, pool) if comparators else None
+            gr, gr_line = genus_line(key)
+            base['unique'], base['fold'], base['genus_ratio'] = uf, fold, gr
             why.append(f'{w["priority"]} priority pathogen')
             if uf is not None and uf < TH['unique_fraction_floor']:
                 results.append({**base, 'tier': 'W', 'verdict': 'NO_ACTION',
@@ -743,6 +887,13 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
             if fold is not None:
                 enriched = fold >= TH['enrichment_fold']
                 bar = ''
+                # Optional second statistic: when a genus_ratio_min is set, a species must also
+                # rise against its own genus. Undefined (sole species of its genus) is not a fail.
+                if (enriched and TH.get('genus_ratio_min') is not None and gr is not None
+                        and gr < TH['genus_ratio_min']):
+                    enriched = False
+                    bar = (f'{gr_line} is below {TH["genus_ratio_min"]} - the whole genus moved, '
+                           f'which is what a batch effect looks like, so not counted as enriched')
             else:
                 ab = float(str(base['abundance']).rstrip('%') or 0)
                 enriched = ab >= TH['watchlist_min_abundance_no_comparators']
@@ -758,7 +909,11 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
                 enr = (f'not enriched - {fold:.2f}x the load of the sample that carries most of it, '
                        f'so this is background for the batch')
             else:
-                enr = f'{fold:.1f}x enriched vs other samples'
+                enr = f'{fold:.1f}x enriched vs comparators'
+            if gr_line:
+                enr += f' ({gr_line})'
+            if bar and fold is not None:
+                enr += f'; {bar}'
             if hit:
                 gene, basis = hit
                 verdict = 'CONFIRM'
@@ -772,6 +927,18 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
                 why.append(enr)
                 why.append('no co-located acquired resistance of a listed class'
                            if enriched else 'not enriched, so no escalation was attempted')
+            # Watchlist markers are ONE-WAY: present lifts the row to CONFIRM (culture), absent
+            # changes nothing, because VFDB coverage of the marker cannot be certified from the
+            # report. C. diphtheriae / tox is the case: the organism is flora, the toxin is the
+            # finding, and the species row alone must never clear it.
+            wm = [f'{m}({ev})' for m in w.get('markers', [])
+                  for ok, ev in [marker_present(g, m, name)] if ok]
+            if wm:
+                why.append('MARKER PRESENT: ' + ', '.join(wm) + ' - culture to confirm')
+                verdict = 'CONFIRM'
+            elif w.get('markers'):
+                why.append(f'marker(s) {"/".join(w["markers"])} not found in VFDB rows for this '
+                           f'species - one-way gate, absence does NOT exclude')
             if uf is not None:
                 why.append(f'unique fraction {uf:.0%}')
             results.append({**base, 'tier': 'W', 'verdict': verdict,
@@ -783,7 +950,7 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
             # Non-threat taxa are only worth reporting when site-specific and substantial.
             if real < TH['min_real_reads']:
                 continue
-            fold = enrichment(loads, key, sample) if comparators else None
+            fold = enrichment(loads, key, sample, pool) if comparators else None
             genus = name.split(' ')[0]
             if fold is not None:
                 if fold < TH['enrichment_fold']:
@@ -798,7 +965,7 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
                 continue
             why.append('no comparator samples - reported on read count alone, NOT shown to be '
                        'site-specific' if fold is None else
-                       (f'{fold:.0f}x enriched vs other samples' if fold != float('inf')
+                       (f'{fold:.0f}x enriched vs comparators' if fold != float('inf')
                         else 'detected only in this sample'))
             if uf is not None:
                 why.append(f'unique fraction {uf:.0%}')
@@ -869,8 +1036,27 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
             # The species-level call is not the finding: the threat is defined below species and
             # this database cannot go there. Found by the Zymo standard, where the certified
             # laboratory S. enterica strain scored CONFIRM at 12% abundance in all five samples.
-            verdict = 'MONITOR'
-            why.append(f'species-level identification only - needs {t["subspecies_required"]}')
+            # The PFI subspecies table is the one place a serovar could appear, so it is read here
+            # and only here: a notifiable serovar above the read floor keeps CONFIRM, anything else
+            # (no rows, a laboratory strain, a Bracken-inflated fragment) drops to MONITOR. Judged
+            # on Real Read, never Estimate: subspecies rows are mostly redistribution artefact.
+            # Whole-word: "Typhi" must not match "Typhimurium", which is the laboratory strain.
+            want = [re.compile(r'\b' + re.escape(p) + r'\b', re.I)
+                    for p in t.get('subspecies_notifiable', [])]
+            found = [r for r in sub_rows if str(r.get('Scientific Name', '')).startswith(name)
+                     and int(r.get('Real Read', 0) or 0) >= TH['min_real_reads']
+                     and any(p.search(str(r.get('Scientific Name', ''))) for p in want)]
+            if found:
+                why.append('SUBSPECIES TABLE: ' + ', '.join(
+                    f'{r["Scientific Name"]} ({int(r["Real Read"]):,} real reads)' for r in found[:3])
+                    + ' - a notifiable serovar is named below species rank; culture to confirm')
+            else:
+                verdict = 'MONITOR'
+                seen_sub = [r for r in sub_rows if str(r.get('Scientific Name', '')).startswith(name)]
+                why.append(f'species-level identification only - needs {t["subspecies_required"]}'
+                           + (f'; subspecies table lists {len(seen_sub)} row(s) under this species, '
+                              f'none a notifiable serovar above the read floor' if seen_sub else
+                              '; subspecies table has no row under this species'))
 
         # gate 10b: supporting marker. ONE-WAY. Present escalates; absent changes nothing and says
         # so. The asymmetry is the point - for these agents VFDB coverage cannot be certified from
@@ -921,7 +1107,14 @@ def triage_taxa(sample, g, loads, genes, comparators=True):
 # What to do about the swab, as opposed to about one row. The deck carried a verdict like this per
 # sample and the row-level tiers had no equivalent, so a reader comparing the two saw an apparent
 # downgrade that was really a change of subject.
-SAMPLE_VERDICTS = ['NO ACTION', 'MONITOR', 'INVESTIGATE', 'ESCALATE']
+SAMPLE_VERDICTS = ['NO ACTION', 'REVIEW', 'ESCALATE']
+# Three, not four (2026-10-26). MONITOR and INVESTIGATE both ended in "a microbiologist reads
+# this" - a level that needs a rule to stop it firing on everything is not carrying a decision.
+# An operations officer has three responses to a swab: file it, have someone look, send a team.
+# REVIEW carries its driver in the reasons list (organism at CONFIRM, high-consequence gene,
+# site-enriched listed organism), so nothing the old split said is lost. Registry entries and
+# reports written before this date carry the old words; LEGACY maps them for display.
+LEGACY_VERDICTS = {'MONITOR': 'REVIEW', 'INVESTIGATE': 'REVIEW'}
 
 
 def _headline(t):
@@ -955,7 +1148,7 @@ def sample_verdict(taxa, genes):
     why += [f'{x["group"]} ({x["allele"]}) at {x["breadth"]:.1f}%/{x["depth"]:.2f}x - '
             f'high-consequence acquired resistance' for x in hi]
     if cf or hi:
-        return 'INVESTIGATE', why
+        return 'REVIEW', why
 
     # MONITOR needs a POSITIVE driver, not merely the existence of a listed organism somewhere in
     # the sample. Before 2026-08-12 any watchlist taxon at MONITOR returned MONITOR - and since a
@@ -978,9 +1171,9 @@ def sample_verdict(taxa, genes):
     if not flagged and conf:
         why.append(f'{len(conf)} acquired resistance gene(s) at CONFIRM with no listed organism '
                    f'in this sample to attach them to')
-        return 'MONITOR', why
+        return 'REVIEW', why
     if site or led:
-        return 'MONITOR', why
+        return 'REVIEW', why
     n_bg = len([t for t in flagged if t['verdict'] == 'MONITOR'])
     return 'NO ACTION', [f'No listed organism is site-enriched and no acquired resistance gene '
                          f'reached CONFIRM.'
@@ -1008,43 +1201,74 @@ def registry_loads(cohort, exclude_ids):
     return {t: per for t, per in coh.items() if per}
 
 
-def run(samples, comparators=None, cohort=None):
+def run_control(path):
+    """A ZymoBIOMICS standard sequenced in the same run, read as a run-level control.
+
+    Not a cohort member - it is never compared against the swabs and never enters the registry.
+    It answers one question per run: did this run recover a known community and stay quiet on
+    it? The result is stamped on every sample of the batch, PASS or FAIL, because a FAIL means the
+    swab verdicts beside it rest on a run that could not see what it was shown.
+    """
+    import validate_zymo
+    return validate_zymo.check(path, load_report(path))
+
+
+def collapse_not_tested(taxa):
+    """The absent RNA-agent rows, as one standing line. The rows stay in `taxa` (the data model,
+    and the cover sheet counts distinct agents from them); only the printed form collapses, so
+    25 rows carrying one fact become one row carrying it."""
+    absent = [r for r in taxa if r['verdict'] == 'NOT_TESTED' and not r.get('real')]
+    if not absent:
+        return None
+    return {'taxon': f'{len(absent)} RNA-genome threat-list agents', 'taxid': '', 'real': 0,
+            'tier': '/'.join(sorted({r['tier'] for r in absent})), 'verdict': 'NOT_TESTED',
+            'why': 'DNA-only library - structurally undetectable, not screened, therefore not '
+                   'excluded: ' + ', '.join(r['taxon'] for r in absent)}
+
+
+def run(samples, comparators=None, cohort=None, control=None):
     reports = {s: load_report(s) for s in samples}
     classified, integrity = {}, {}
     for s, g in reports.items():
         integrity[s], classified[s] = gate_integrity(s, g)
-    loads = loads_by_taxon(reports, classified)
-    coh = {} if comparators is False else registry_loads(cohort, {sample_id(s) for s in samples})
-    for taxon, per in coh.items():
-        loads[taxon].update(per)
-    if coh:
-        print(f'  [gate 8] {len(set().union(*(p for p in coh.values())))} prior sample(s) from the '
-              f'registry joined the comparison set')
-    if comparators is None:
-        comparators = len(samples) > 1 or bool(coh)
+    loads, names, pools, comparators, n_reg = batch_context(samples, reports, classified,
+                                                            comparators, cohort)
+    if n_reg:
+        print(f'  [gate 8] {n_reg} prior sample(s) from the registry joined the comparison set')
     if not comparators:
         why = 'single sample' if len(samples) == 1 else 'samples declared independent (--independent)'
         print(f'  [gate 8] {why} - cross-sample enrichment is inert; non-threat taxa are '
               'reported on read count alone and are NOT shown to be site-specific.')
+    ctrl = run_control(control) if control else None
+    if ctrl:
+        print(f'  [control] {ctrl["line"]}')
 
     for s in samples:
         g = reports[s]
         genes = triage_genes(g)
-        taxa = triage_taxa(s, g, loads, genes, comparators)
+        pool, basis = pools[s]
+        taxa = triage_taxa(s, g, loads, genes, comparators, pool=pool, names=names)
         sv, sv_why = sample_verdict(taxa, genes)
+        flags = qc_flags(g, classified[s])
 
         print(f'\n{"="*100}\n{sample_id(s)}   classified={classified[s]:,}\n{"="*100}')
-        print(f'  SAMPLE VERDICT: {sv}')
+        print(f'  SAMPLE VERDICT: {sv}' + (f'   flags: {", ".join(f for f, _ in flags)}' if flags else ''))
         for r in sv_why[:4]:
             print(f'      - {r[:110]}')
+        for f, reason in flags:
+            print(f'  [{f}] {reason[:120]}')
+        print(f'  [gate 8] comparators: {basis}')
         for p in integrity[s]:
             print(f'  [integrity] {p}')
 
         print('\n  -- TAXA ' + '-'*90)
         shown = 0
+        nt_line = collapse_not_tested(taxa)
         for r in taxa:
             if r['verdict'] == 'NO_ACTION' and r['tier'] == '-':
                 continue
+            if r['verdict'] == 'NOT_TESTED' and not r.get('real'):
+                continue                       # printed once, below, as nt_line
             # Enrichment alone is not actionability: a sample can carry a whole shifted community
             # (WBM156 is oral flora on a tap). Cap the non-threat list and report the remainder
             # rather than truncating silently. Everything lands in the TSV either way.
@@ -1057,6 +1281,9 @@ def run(samples, comparators=None, cohort=None):
             word = 'enriched ' if comparators else ''
             print(f'  ... and {shown-8} further {word}non-threat taxa (see TSV) - a community '
                   f'shift, not {shown} separate findings')
+        if nt_line:
+            print(f"  {nt_line['verdict']:<10} {nt_line['tier']:<2} {nt_line['taxon'][:44]:<44} "
+                  f"{'':>8}  {nt_line['why'][:150]}")
 
         print('\n  -- AMR GENES ' + '-'*85)
         for r in genes:
@@ -1076,10 +1303,19 @@ def run(samples, comparators=None, cohort=None):
             # sample_id, not the raw argument: under WDL the argument is a localised path
             # like /cromwell-executions/.../WBM185_en.html, and writing that into the identifier
             # column makes the TSV unreadable outside the run that produced it.
+            note = (f'flags={",".join(f for f, _ in flags) or "none"}; comparators={basis}'
+                    + (f'; control={ctrl["line"]}' if ctrl else ''))
             fh.write(f'sample\t{sv}\t\t{sample_id(s)}\t{classified[s]} classified reads\t'
-                     f'{" | ".join(sv_why)}\t\n')
+                     f'{" | ".join(sv_why)}\t{note}\n')
+            for f, reason in flags:
+                fh.write(f'flag\t{f}\t\t{sample_id(s)}\t\t{reason}\t\n')
             for r in taxa:
+                if r['verdict'] == 'NOT_TESTED' and not r.get('real'):
+                    continue
                 fh.write(f"taxon\t{r['verdict']}\t{r['tier']}\t{r['taxon']}\t{r['real']} reads\t{r['why']}\t\n")
+            if nt_line:
+                fh.write(f"taxon\t{nt_line['verdict']}\t{nt_line['tier']}\t{nt_line['taxon']}\t"
+                         f"0 reads\t{nt_line['why']}\t\n")
             for r in genes:
                 fh.write(f"amr\t{r['verdict']}\t\t{r['group']} ({r['allele']})\t"
                          f"{r['breadth']:.2f}% {r['depth']:.2f}x collapsed {r['alleles_collapsed']}\t"
@@ -1183,6 +1419,18 @@ def selftest():
     # resolving to it turned the documented `triage.py WBM156` into a crash.
     if os.path.isdir(os.path.join(ROOT, 'WBM156')):
         assert report_path('WBM156').endswith('WBM156_en.html'), report_path('WBM156')
+
+    # The number stamped on the HTML report under `rules` must BE the rule file's hash - the one
+    # --version prints and the README tells a reader to record with their results. The report used
+    # to hash rules+engine inline and print that under the same word, so the two artifacts
+    # disagreed (32dd2a38fcec on the page, f76746d8b7fc from --version) with nothing saying why.
+    import triage_report
+    fps = triage_report.fingerprints()
+    assert fps.rules == rules_fingerprint(), (fps.rules, rules_fingerprint())
+    assert fps.build == build_fingerprint(), (fps.build, build_fingerprint())
+    # The two must stay distinct quantities: a build fp that equals the rules fp would mean the
+    # engine stopped contributing to it, i.e. the collapse this separation exists to prevent.
+    assert fps.rules != fps.build, 'rules and build fingerprints must not collide'
 
     # registry_loads must never let a sample compare against itself.
     assert registry_loads(None, set(SAMPLES)) == {} or all(
@@ -1362,24 +1610,101 @@ def selftest():
     G = lambda v, hc=False: {'verdict': v, 'class': 'acquired', 'high_consequence': hc,
                              'group': 'G', 'allele': 'MEG_1', 'breadth': 90.0, 'depth': 9.0}
     assert sample_verdict([T('A', 'ESCALATE')], [])[0] == 'ESCALATE'
-    assert sample_verdict([T('W', 'CONFIRM')], [])[0] == 'INVESTIGATE'
-    assert sample_verdict([], [G('CONFIRM', hc=True)])[0] == 'INVESTIGATE'   # mecA / CTX-M alone
-    assert sample_verdict([], [G('CONFIRM')])[0] == 'MONITOR'                # ordinary acquired gene
-    # MONITOR needs a positive driver. A listed organism merely PRESENT at background level is
-    # what a public surface looks like, and returning MONITOR for it made the tier the floor.
-    assert sample_verdict([T('W', 'MONITOR', fold=9.0)], [])[0] == 'MONITOR'      # site-enriched
+    assert sample_verdict([T('W', 'CONFIRM')], [])[0] == 'REVIEW'
+    assert sample_verdict([], [G('CONFIRM', hc=True)])[0] == 'REVIEW'        # mecA / CTX-M alone
+    assert sample_verdict([], [G('CONFIRM')])[0] == 'REVIEW'                 # ordinary acquired gene
+    # REVIEW needs a positive driver. A listed organism merely PRESENT at background level is
+    # what a public surface looks like, and returning a verdict for it made the tier the floor.
+    assert sample_verdict([T('W', 'MONITOR', fold=9.0)], [])[0] == 'REVIEW'       # site-enriched
     assert sample_verdict([T('W', 'MONITOR', fold=1.2)], [])[0] == 'NO ACTION'    # background
     assert sample_verdict([T('W', 'MONITOR', fold=None)], [])[0] == 'NO ACTION'   # not comparable
     # A listed organism topping the host pool of an acquired CONFIRM gene is also a driver...
     assert sample_verdict([T('W', 'MONITOR', ctx=[{'self_rank': 1, 'verdict': 'CONFIRM'}])],
-                          [G('CONFIRM')])[0] == 'MONITOR'
+                          [G('CONFIRM')])[0] == 'REVIEW'
     # ...but the same gene led by a commensal is not: that is the flora's resistome, not the site's.
     assert sample_verdict([T('W', 'MONITOR', ctx=[{'self_rank': 4, 'verdict': 'CONFIRM'}])],
                           [G('CONFIRM')])[0] == 'NO ACTION'
     assert sample_verdict([T('-', 'MONITOR')], [])[0] == 'NO ACTION'         # community context only
     assert sample_verdict([], [])[0] == 'NO ACTION'
     # A watchlist organism can never drive the sample to ESCALATE.
-    assert sample_verdict([T('W', 'CONFIRM')], [G('CONFIRM', hc=True)])[0] == 'INVESTIGATE'
+    assert sample_verdict([T('W', 'CONFIRM')], [G('CONFIRM', hc=True)])[0] == 'REVIEW'
+    # Three levels and no more: the ladder is file / look / send a team. Old words still map.
+    assert SAMPLE_VERDICTS == ['NO ACTION', 'REVIEW', 'ESCALATE']
+    assert LEGACY_VERDICTS['INVESTIGATE'] == LEGACY_VERDICTS['MONITOR'] == 'REVIEW'
+    assert all(sample_verdict(*c)[0] in SAMPLE_VERDICTS for c in
+               (([T('W', 'CONFIRM')], []), ([], [G('CONFIRM')]), ([], [])))
+
+    # --- gate 0: QC flags never move a verdict, and fire where a negative is weak ------------
+    qcg = lambda n, host='80.0%', rna=False: {'showRNA': rna, 'basicSummary': {'readsQc': {'data': [
+        {'Classified_Read': str(n), 'Host_Read': f'1 ({host})'}]}}}
+    fl = dict(qc_flags(qcg(622_642, '91.28%'), 622_642))
+    assert 'QC-LIMITED' in fl and '91.28%' in fl['QC-LIMITED'] and 'NOT-TESTED' in fl, fl
+    assert dict(qc_flags(qcg(2_590_665, rna=True), 2_590_665)) == {}
+    assert sample_verdict([], [])[0] == 'NO ACTION'        # a flag is a flag, the verdict is separate
+
+    # --- gate 8: own site first, cross-site only as the fallback -----------------------------
+    keys = {'a', 'b', 'c', 'd', 'me'}
+    pool, basis = comparator_pool('tap', ['a', 'b', 'c'], keys, 'me')
+    assert pool == {'a', 'b', 'c'} and basis.startswith('site history (3'), (pool, basis)
+    pool, basis = comparator_pool('tap', ['a', 'b'], keys, 'me')       # one short of the floor
+    assert pool == {'a', 'b', 'c', 'd'} and 'cross-site' in basis and '2 prior' in basis, basis
+    pool, basis = comparator_pool(None, [], keys, 'me')
+    assert pool == {'a', 'b', 'c', 'd'} and 'site not captured' in basis, basis
+    assert 'me' not in comparator_pool('tap', ['me', 'a', 'b', 'c'], keys, 'me')[0]
+    # ...and enrichment honours the pool: the same taxon reads 2x against its site, 0.5x batch-wide.
+    L = {'t': {'me': 10.0, 'a': 5.0, 'b': 4.0, 'z': 20.0}}
+    assert enrichment(L, 't', 'me', {'a', 'b'}) == 2.0 and enrichment(L, 't', 'me') == 0.5
+    assert enrichment(L, 't', 'me', {'q'}) == float('inf')
+
+    # --- within-genus ratio: a species that rises against its own genus ----------------------
+    N = {'ab': 'Acinetobacter baumannii', 'aj': 'Acinetobacter junii', 'pr': 'Providencia rettgeri'}
+    L = {'ab': {'me': 60.0, 'a': 10.0}, 'aj': {'me': 40.0, 'a': 90.0}, 'pr': {'me': 5.0}}
+    assert round(within_genus_ratio(L, N, 'ab', 'me'), 9) == 6.0   # 0.6 here vs 0.1 there
+    assert within_genus_ratio(L, N, 'pr', 'me') is None         # sole species of its genus
+    assert within_genus_ratio(L, N, 'ab', 'me', {'zz'}) is None  # nothing in the pool
+
+    # --- watchlist marker is one-way; C. diphtheriae without tox is flora -------------------
+    cd = lambda vf=(): {'showRNA': False, 'virulence': {'DNA': {'data': [
+        {'Virulence Factor': f, 'Pathogen': p, 'VF Protein': 'VFG1', 'Coverage(%)': '95%'}
+        for f, p in vf]}}, 'indentification_DNA': {'speciesData': {'data': [
+            {'Taxid': '1717', 'Scientific Name': 'Corynebacterium diphtheriae', 'Real Read': '1553',
+             'Estimate Read': '1600', 'Abundance': '0.05%'}]}}}
+    plain = triage_taxa('s', cd(), {'1717': {'s': 1.0}}, [], False)[0]
+    assert plain['tier'] == 'W' and plain['verdict'] == 'MONITOR' and 'does NOT exclude' in plain['why'], plain
+    toxic = triage_taxa('s', cd([('tox', 'Corynebacterium diphtheriae NCTC 13129')]),
+                        {'1717': {'s': 1.0}}, [], False)[0]
+    assert toxic['verdict'] == 'CONFIRM' and 'MARKER PRESENT: tox' in toxic['why'], toxic
+    assert triage_taxa('s', cd([('tox', 'Corynebacterium ulcerans 0102')]),
+                       {'1717': {'s': 1.0}}, [], False)[0]['verdict'] == 'MONITOR'
+
+    # --- the subspecies table is read only where the threat lives below species rank ----------
+    sal_g = lambda sub: {'showRNA': False, 'virulence': {'DNA': {'data': []}},
+                         'indentification_DNA': {
+                             'speciesData': {'data': [
+                                 {'Scientific Name': 'Salmonella enterica', 'Taxid': '28901',
+                                  'Real Read': '5000', 'Estimate Read': '5000', 'Abundance': '5%'}]},
+                             'subspeciesData': {'data': sub}}}
+    typhi = [{'Scientific Name': 'Salmonella enterica subsp. enterica serovar Typhi',
+              'Real Read': '400', 'Estimate Read': '400'}]
+    lab = [{'Scientific Name': 'Salmonella enterica subsp. enterica serovar Typhimurium LT2',
+            'Real Read': '400', 'Estimate Read': '400'}]
+    thin = [{'Scientific Name': 'Salmonella enterica subsp. enterica serovar Typhi',
+             'Real Read': '12', 'Estimate Read': '9000'}]        # Bracken fragment, under the floor
+    sr = lambda sub: next(r for r in triage_taxa('s', sal_g(sub), {'28901': {'s': 1.0}}, [], False)
+                          if r['taxon'] == 'Salmonella enterica')
+    assert sr(typhi)['verdict'] == 'CONFIRM' and 'SUBSPECIES TABLE' in sr(typhi)['why'], sr(typhi)
+    assert sr(lab)['verdict'] == 'MONITOR' and '1 row(s)' in sr(lab)['why'], sr(lab)['why']
+    assert sr(thin)['verdict'] == 'MONITOR', sr(thin)['why']
+    assert sr([])['verdict'] == 'MONITOR' and 'no row' in sr([])['why'], sr([])['why']
+
+    # --- 25 absent RNA rows print as one line, and the rows themselves are untouched ----------
+    rows = triage_taxa('s', {'showRNA': False, 'virulence': {'DNA': {'data': []}},
+                             'indentification_DNA': {'speciesData': {'data': []}}}, {}, [], False)
+    n_abs = sum(1 for r in rows if r['verdict'] == 'NOT_TESTED' and not r['real'])
+    one = collapse_not_tested(rows)
+    assert n_abs >= 20 and one['taxon'].startswith(f'{n_abs} RNA-genome') and \
+        one['why'].split(': ', 1)[1].count(',') == n_abs - 1, one
+    assert collapse_not_tested([]) is None
 
     # --- platform calibration -----------------------------------------------------------------
     qc = lambda **kw: {'basicSummary': {'readsQc': {'data': [kw]}}}
@@ -1528,8 +1853,11 @@ if __name__ == '__main__':
     _argv = sys.argv[1:]
     _od, _c1 = _opt(_argv, '--outdir')
     _coh, _c3 = _opt(_argv, '--cohort')
+    # --control: a ZymoBIOMICS standard from the SAME sequencing run, checked as a run-level
+    # control and stamped on every sample's output. Never a cohort member.
+    _ctl, _c4 = _opt(_argv, '--control')
     out, _c2 = _opt(_argv, '--out')
-    _used = _c1 | _c2 | _c3
+    _used = _c1 | _c2 | _c3 | _c4
     args = [a for i, a in enumerate(_argv) if i not in _used and not a.startswith('--')]
     # Expand globs ourselves. Inside a container the host shell cannot see /data, so
     # `-v "$PWD/Reports:/data" ... /data/*_en.html` reaches us as a literal pattern - and the host
@@ -1584,7 +1912,7 @@ if __name__ == '__main__':
     if out is None and _od:
         out = os.path.join(OUTDIR, 'triage_report.html')
     if '--version' in sys.argv:
-        print(f'htx-triage {VERSION}  rules={rules_fingerprint()}')
+        print(f'htx-triage {VERSION}  rules={rules_fingerprint()}  build={build_fingerprint()}')
         raise SystemExit(0)
     if '--selftest' in sys.argv:
         selftest()
@@ -1612,9 +1940,9 @@ if __name__ == '__main__':
         # in one invocation has to be built and wired twice. Guarded on --outdir so interactive
         # `--html --out=x.html` in the repo still writes only the page it was asked for.
         if _od:
-            run(args or SAMPLES, comparators, cohort=_coh)
+            run(args or SAMPLES, comparators, cohort=_coh, control=_ctl)
         import triage_report
-        path, n = triage_report.build(args or SAMPLES, comparators=comparators,
+        path, n = triage_report.build(args or SAMPLES, comparators=comparators, control=_ctl,
                                       # abspath against the CWD, not ROOT. Run from the repo root
                                       # this is identical to the old behaviour; inside a container
                                       # ROOT is /opt/htx, which is not where outputs belong and is
@@ -1626,4 +1954,4 @@ if __name__ == '__main__':
         print(f'{shown}: {n} sample(s), '
               f'{os.path.getsize(path)/1024:.0f} KB, self-contained')
     else:
-        run(args or SAMPLES, comparators, cohort=_coh)
+        run(args or SAMPLES, comparators, cohort=_coh, control=_ctl)

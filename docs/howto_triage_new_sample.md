@@ -98,8 +98,10 @@ Zymo/ZymoBac_6ng   classified=38,367,696
 
 Read it in this order:
 
-1. **`SAMPLE VERDICT`.** One answer for the whole swab — `NO ACTION` / `MONITOR` / `INVESTIGATE` /
-   `ESCALATE` — with the rows that drove it listed beneath. This is the line to quote in a summary.
+1. **`SAMPLE VERDICT`.** One answer for the whole swab — `NO ACTION` / `REVIEW` / `ESCALATE` —
+   with the rows that drove it listed beneath, and any flags (`QC-LIMITED`, `NOT-TESTED`) beside
+   it. This is the line to quote in a summary. The `[gate 8] comparators:` line under it says
+   what the swab was compared against: its own site's history, or every other sample.
 2. **`[integrity]` lines.** If the read partition does not sum, or FASTQs are missing or empty,
    stop and fix the delivery before believing anything below.
 3. **`ESCALATE`** — a threat-list agent with its confirmatory marker present. This is the only

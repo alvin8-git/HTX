@@ -121,13 +121,22 @@ virulence row, `MEG_2378` for a resistance row, the taxid for an organism.
 is what the briefing deck carried and what the row tiers had no equivalent for. Printed on stdout,
 written as the first row of the TSV (`kind=sample`), and shown as a banner in the HTML.
 
-`SAMPLE_VERDICTS = ['NO ACTION', 'MONITOR', 'INVESTIGATE', 'ESCALATE']`
+`SAMPLE_VERDICTS = ['NO ACTION', 'REVIEW', 'ESCALATE']`
+
+> **Three levels, not four (changed 2026-10-26).** `MONITOR` and `INVESTIGATE` both ended in
+> "a microbiologist reads this" and carried no distinct action, so they are one level, `REVIEW`;
+> the reasons list says which driver fired. `LEGACY_VERDICTS` maps the old words for registry
+> entries and reports written before that date. Beside the verdict sit two **flags**, which never
+> move it: `QC-LIMITED` (`Classified_Read` under `qc_classified_floor`, so a negative from this swab
+> carries little weight — re-swab before reading an absence) and `NOT-TESTED` (DNA-only library).
+> Both come from `qc_flags()` and are written as `kind=flag` rows in the TSV and as badges on the
+> verdict strip of the HTML.
 
 | Verdict | Fires when |
 |---|---|
 | `ESCALATE` | Any threat-list taxon at `ESCALATE` — a CDC agent with its confirmatory marker. |
-| `INVESTIGATE` | Any threat-list **or watchlist** taxon at `CONFIRM`, **or** a `high_consequence` acquired gene at `CONFIRM` (`MECA`, `CTX`, `MUPA`). |
-| `MONITOR` | A listed taxon that is **site-enriched** (`fold ≥ enrichment_fold`), **or** a listed taxon that **tops the host pool** of an acquired gene at `CONFIRM`. With no listed taxon in the sample at all, an acquired gene at `CONFIRM` still raises `MONITOR`. |
+| `REVIEW` | Any threat-list **or watchlist** taxon at `CONFIRM`, **or** a `high_consequence` acquired gene at `CONFIRM` (`MECA`, `CTX`, `MUPA`), **or** any of the former `MONITOR` drivers in the next row. |
+| `REVIEW` (formerly `MONITOR`) | A listed taxon that is **site-enriched** (`fold ≥ enrichment_fold`), **or** a listed taxon that **tops the host pool** of an acquired gene at `CONFIRM`. With no listed taxon in the sample at all, an acquired gene at `CONFIRM` still raises `MONITOR`. |
 | `NO ACTION` | Nothing above. Community-context taxa (`tier == '-'`) never contribute. |
 
 > **`MONITOR` requires a positive driver (changed 2026-08-12).** It previously fired on *any*
@@ -168,15 +177,32 @@ Numbering matches [`automated_triage_design.md`](automated_triage_design.md).
 | 1 | Read floor | `triage_taxa` | `min_real_reads` (50). |
 | 7 | Bracken inflation | `triage_taxa` | `Estimate/Real > bracken_inflation_ratio` (10) → flagged, judged on Real Read. |
 | 6 | Amplification | `unique_fraction` | **Optional extension — `--with-fastq` only, inert by default.** Unique fraction below `unique_fraction_floor` (0.15) → artifact. Lazy: only for surviving taxa. |
-| 8 | Cross-sample enrichment | `enrichment` | Depth-normalised load (reads per million classified) vs the highest other sample. Below `enrichment_fold` (5.0) → dropped. **Inert with <2 samples** — see below. |
+| 0 | QC flags | `qc_flags` | `Classified_Read` under `qc_classified_floor` (1,000,000) → `QC-LIMITED`; `showRNA=False` → `NOT-TESTED`. Flags, never verdicts. |
+| 8 | Cross-sample enrichment | `comparator_pool`, `enrichment`, `within_genus_ratio` | **Own site first (2026-10-26):** when `site_id` (from `sample_metadata.tsv`, stored in the registry) has at least `site_history_min_runs` (3) prior runs, the comparator set is those runs only; otherwise every other sample, batch plus registry. Each output names its basis. Depth-normalised load (reads per million classified) vs the highest comparator. Below `enrichment_fold` (5.0) → dropped. **Inert with <2 samples** — see below. |
 | 9 | Near neighbour | `triage_taxa` | A congener at ≥ this taxon's read count → cross-mapping cannot be excluded. |
 | 11 | Taxonomy currency | `taxonomy_notes` | Emits a reclassification note (e.g. *Brucella anthropi* = *Ochrobactrum*). |
 | 10a | Confirmatory marker | `marker_present`, `marker_power` | Two-way **only when the marker could have been seen**. Present → `ESCALATE`. Absent with power ≥ `marker_power_min` → downgrade to `NO_ACTION`. Absent with power below it → `NOT_TESTED`, and the marker reverts to one-way. Below the read floor gate 1 has already answered, so the power test does not run. |
-| — | Subspecies cap | `triage_taxa` | `subspecies_required` and still `CONFIRM` → cap at `MONITOR`. |
+| 10c | Subspecies table | `triage_taxa` | `subspecies_required` and still `CONFIRM` → read PFI's `subspeciesData`: a `subspecies_notifiable` serovar (Typhi / Paratyphi, whole-word) with `Real Read` ≥ `min_real_reads` keeps `CONFIRM` and is named; anything else → `MONITOR`. Judged on Real Read, never Estimate. |
+| 1b | Watchlist marker | `marker_present` | One-way, for watchlist entries carrying `markers` (*C. diphtheriae* / `tox`). Present → `CONFIRM`; absent → unchanged and stated. |
 | 10b | Supporting marker | `marker_present` | One-way. Present → `ESCALATE` (lifts the subspecies cap). Absent → unchanged, and the row states that a miss is not an exclusion. |
 | 3 | Allele collapsing | `triage_genes` | Group MEGARes rows by `Group`, keep `max(breadth, depth)`. |
 | 4 | Breadth floor | `triage_genes` | Below `gene_breadth_floor` (50%) → `NO_ACTION`. |
 | 5 | Class annotation | `annotate_group` | group override → mechanism map → keyword fallback. |
+
+### Within-genus ratio
+
+Reported on every listed row beside the fold (`within-genus ratio 9.0x`): this species' share of
+its genus in this swab over its best share in any comparator. A reagent artefact moves a whole
+genus together; a real site finding moves one species against its own genus. *A. baumannii* in
+WBM232 is 6.0× by fold and 9.0× by this. Undefined when the species is the only member of its
+genus seen (*P. rettgeri*, WBM156). It gates nothing until `genus_ratio_min` is set.
+
+### Run control (`--control <zymo report>`)
+
+A ZymoBIOMICS standard sequenced in the same run is read by `validate_zymo.check` as a run-level
+control — never a cohort member — and its PASS/FAIL line (members recovered, escalations,
+non-member taxa above 1,000 reads) is stamped on every sample's TSV `sample` row and on the HTML
+header. A FAIL means the swab verdicts beside it rest on a run that could not see what it was shown.
 
 ### Single-sample mode
 
@@ -306,6 +332,9 @@ All thresholds and biology live here, not in code. Keys prefixed `_` are comment
 | `unique_probe_reads` | 40000 | Reads sampled per taxon for the unique-fraction probe |
 | `watchlist_min_abundance_no_comparators` | 1.0 | Abundance % a watchlist organism needs to escalate when enrichment cannot be measured |
 | `long_read_length_bp` | 1000.0 | Mean read length at or above which `long_read_thresholds` apply |
+| `qc_classified_floor` | 1000000 | Below this many classified reads the swab is flagged `QC-LIMITED` |
+| `site_history_min_runs` | 3 | Prior runs at the same `site_id` before gate 8 compares against the site's own history |
+| `genus_ratio_min` | null | Within-genus ratio a watchlist organism must also reach to count as enriched; `null` = report only |
 
 ### `threat_list` — 46 entries
 

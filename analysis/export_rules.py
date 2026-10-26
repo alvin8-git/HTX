@@ -67,6 +67,68 @@ def rows():
     hints = [[g, ', '.join(v.get('taxa', [])), v.get('basis', '')]
              for g, v in sorted(RULES['amr_host_hints'].items()) if isinstance(v, dict)]
 
+    # The decision table: one row per rule, in the order the gates run, with the live threshold
+    # values pulled from the JSON so this view can never drift from what the engine applies.
+    # The JSON remains the compiled, loaded form; this is the version a microbiologist argues with.
+    # ponytail: generated view, not the source. Inverting that (table -> JSON compiler) is the
+    # next step once the thresholds stop moving.
+    T = RULES['thresholds']
+    ct = RULES['class_thresholds'].get('acquired', {})
+    table = [
+        ['QC.FLOOR', 'every swab', 'Classified_Read', f'< {T["qc_classified_floor"]:,}',
+         'flag QC-LIMITED (never a verdict)', 'a negative from a thin swab carries no weight', 'independent review 2026-10-26'],
+        ['QC.RNA', 'every swab', 'showRNA', 'false',
+         'flag NOT-TESTED; one standing row for all RNA agents', 'absence of a test is not absence', 'assay design'],
+        ['GENE.ONE_PER_GROUP', 'every MEGARes row', 'Group', 'collapse alleles',
+         'keep the allele best on breadth AND depth', 'one gene recruits reads onto several accessions', 'gate 3'],
+        ['GENE.BREADTH_FLOOR', 'every gene', 'Coverage(%)', f'< {T["gene_breadth_floor"]}',
+         'NO_ACTION', 'a fragment is not a gene', 'gate 4'],
+        ['GENE.INTRINSIC', 'rRNA / efflux / intrinsic / environmental class', 'amr_classes, mechanism_classes',
+         'class in suppressed set', 'NO_ACTION', 'presence is the default state', 'gate 5'],
+        ['GENE.ACQUIRED', 'class = acquired, short reads', 'Coverage(%), Depth',
+         f'>= {ct.get("breadth", T["gene_breadth_confident"])} and >= {ct.get("depth", T["gene_depth_confident"])} -> full; '
+         f'>= {ct.get("partial_breadth", "-")} and >= {ct.get("partial_depth", "-")} -> partial',
+         'CONFIRM (ceiling for any gene)', 'breadth separates a gene from a conserved fragment', 'class_thresholds.acquired'],
+        ['TAX.RNA', 'threat-list agent, genome = RNA, DNA library', 'threat_list.genome', 'RNA',
+         'NOT_TESTED', 'structurally undetectable', 'gate 2'],
+        ['TAX.READ_FLOOR', 'every species row', 'Real Read', f'< {T["min_real_reads"]}',
+         'listed -> NO_ACTION with the count; unlisted -> drop', 'below this a call is cross-mapping or background', 'gate 1'],
+        ['TAX.INFLATION', 'every species row', 'Estimate Read / Real Read', f'> {T["bracken_inflation_ratio"]}',
+         'judge on Real Read only; note it', 'Bracken redistribution inflates estimates', 'gate 7'],
+        ['TAX.COMPARATORS', 'every swab', 'site_id prior runs', f'>= {T["site_history_min_runs"]} runs at this site',
+         'compare against own history; else every other sample', 'is it new HERE, not new anywhere', 'gate 8, 2026-10-26'],
+        ['TAX.ENRICHED', 'listed or unlisted taxon, comparators present', 'reads per million vs max comparator',
+         f'>= {T["enrichment_fold"]}x', 'candidate (unlisted -> MONITOR; listed -> may escalate)',
+         'site-specific, not batch background', 'gate 8'],
+        ['TAX.GENUS_RATIO', 'listed taxon, comparators present', 'species share of its genus here / best elsewhere',
+         'reported always; gates only if genus_ratio_min is set' + (f' ({T["genus_ratio_min"]})' if T.get('genus_ratio_min') is not None else ''),
+         'batch-robust second opinion on TAX.ENRICHED', 'a kit artefact moves the whole genus together', 'gate 8, 2026-10-26'],
+        ['TAX.NO_COMPARATORS', 'watchlist taxon, no comparators', 'Abundance', f'>= {T["watchlist_min_abundance_no_comparators"]}%',
+         'counts as enriched', 'the only criterion measurable inside one sample', 'gate 8 fallback'],
+        ['TAX.KITOME', 'unlisted taxon, no comparators', 'genus', 'in kitome_genera', 'drop',
+         'reagent contaminants never enrich', 'gate 8 fallback'],
+        ['TAX.NEAR_NEIGHBOUR', 'threat-list agent', 'near-neighbour reads', '>= this taxon',
+         'CONFIRM -> NO_ACTION', 'cross-mapping cannot be excluded', 'gate 9'],
+        ['TAX.MARKER', 'threat-list agent with markers', 'VFDB Virulence Factor, Coverage(%)',
+         f'pattern match at >= {T["marker_breadth_floor"]}% breadth', 'present -> ESCALATE; absent -> NO_ACTION',
+         'the marker is what makes the agent a threat', 'gate 10a'],
+        ['TAX.MARKER_POWER', 'threat-list agent with markers', 'P(a read lands on the marker)',
+         f'< {T["marker_power_min"]}', 'absent -> NOT_TESTED instead of NO_ACTION', 'a test with no power is not evidence', 'gate 10a'],
+        ['TAX.SUPPORTING', 'threat-list agent with supporting markers', 'VFDB rows of this species', 'present',
+         'ESCALATE; absent changes nothing', 'one-way: VFDB coverage cannot be certified', 'gate 10b'],
+        ['TAX.SUBSPECIES', 'threat-list agent with subspecies_required at CONFIRM', 'subspeciesData',
+         f'notifiable serovar named, Real Read >= {T["min_real_reads"]}', 'keep CONFIRM; else MONITOR',
+         'the threat is defined below species rank', 'gate 10c, 2026-10-26'],
+        ['TAX.WATCHLIST_ESC', 'watchlist taxon, enriched', 'co-located acquired gene class, host share',
+         f'class in escalating_classes and share >= {T["escalation_host_share"]} or tops pool',
+         'CONFIRM (culture with AST)', 'co-location, not co-attribution', 'gate 1b'],
+        ['TAX.WATCHLIST_MARKER', 'watchlist taxon with markers', 'VFDB rows of this species', 'present',
+         'CONFIRM; absent changes nothing', 'one-way; C. diphtheriae tox', 'gate 1b, 2026-10-26'],
+        ['SAMPLE.VERDICT', 'every swab', 'row verdicts', 'ESCALATE row -> ESCALATE; CONFIRM row, high-consequence gene, '
+         'site-enriched listed taxon, or listed taxon topping a CONFIRM gene -> REVIEW; else NO ACTION',
+         'NO ACTION / REVIEW / ESCALATE', 'three responses: file, look, send a team', 'sample_verdict, 2026-10-26'],
+    ]
+
     thresh = [[k, str(v)] for k, v in sorted(RULES['thresholds'].items())]
     for sect in ('class_thresholds', 'group_thresholds', 'long_read_thresholds'):
         for k, v in sorted(RULES[sect].items()):
@@ -75,6 +137,7 @@ def rows():
                                                           if not a.startswith('_') and a != 'why'})])
 
     return [
+        ('decision_table', ['id', 'when', 'input', 'test', 'then', 'why', 'source'], table),
         ('threat_list', ['Species', 'Taxid', 'CDC tier', 'Genome', 'Confirmatory markers (two-way)',
                          'Supporting markers (one-way)', 'Gate 10 mode', 'Subspecies required',
                          'Near neighbours', 'In PFIDB v5'], thr),
@@ -98,7 +161,11 @@ def write_markdown(tables, path):
            'The *In PFIDB v5* column is an exact-string check against `PFI_DB/PFIDB_v5_0.xlsx`.',
            'Since the taxid keying change this is advisory, not fatal: `triage.py` matches on',
            '`Taxid` first and falls back to the name. A `NO - name mismatch` row still fires,',
-           'but only for reports that carry a taxid column.', '']
+           'but only for reports that carry a taxid column.', '',
+           'The first table is the **decision table**: every rule the engine applies, one row',
+           'each, in the order the gates run, with the live threshold values. Read it top to',
+           'bottom and you have read the engine. The tables after it are the lists those rules',
+           'look things up in.', '']
     for name, header, data in tables:
         out += [f'## {name} — {len(data)} entries', '',
                 '| ' + ' | '.join(header) + ' |',
