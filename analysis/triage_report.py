@@ -403,11 +403,15 @@ def ledger(d, t):
 
 
 def ledger_html(d, t):
+    """Criteria ledger as a two-column grid: badge, then criterion and the value it measured.
+
+    No preamble. The BEC legend is written once, in the method section, not once per organism.
+    """
     lg = sorted(ledger(d, t), key=lambda c: (ORDER_STATE.index(c['state']), BEC[c['code'][0]][0]))
     rows = ''.join(
-        f'<tr><td class="code">{bec_badge(c["code"], c["state"])}</td>'
-        f'<td class="{STATE[c["state"]][1]}">{STATE[c["state"]][0]} {c["text"]}</td>'
-        f'<td class="meas">{c["measured"]}</td><td class="num gate">{c["gate"]}</td></tr>'
+        f'<div class="lgb">{bec_badge(c["code"], c["state"])}</div>'
+        f'<div class="lgt {STATE[c["state"]][1]}">{STATE[c["state"]][0]} {c["text"]}'
+        f'<span class="lgm">{c["measured"]} <span class="gate">gate {c["gate"]}</span></span></div>'
         for c in lg)
 
     # Summarise by the STRONGEST criterion that fired in each direction, not by a count. Counting
@@ -417,26 +421,14 @@ def ledger_html(d, t):
     part = []
     for lbl, x in (('raising', up), ('lowering', dn)):
         if x:
-            part.append(f'strongest {lbl}: {bec_badge(*x)} <b>{BEC[x[0][0]][1]}</b>')
+            part.append(f'strongest {lbl} {bec_badge(*x)}')
     na = sum(1 for c in lg if c['state'] != 'met')
-    part.append(f'{na} not assessable or unmet')
-    verdict = (f'<div class="verdictline">{" &nbsp;&middot;&nbsp; ".join(part)} '
-               f'&rarr; {chip(t["verdict"])}</div>')
+    part.append(f'{na} unmet or not assessable')
+    verdict = (f'<div class="verdictline">{" &middot; ".join(part)} &rarr; {chip(t["verdict"])}</div>')
 
-    return (f'<div class="ev"><h4>3 &middot; Criteria ledger &mdash; why this row is '
-            f'{E(t["verdict"].replace("_", " "))}</h4>'
-            f'<p class="tiny">Each line is one gate of the cascade, named under <b>BEC v1</b> and '
-            f'given the value it measured. The badge carries the criterion\'s <b>strength</b> '
-            f'&mdash; {" &middot; ".join(pip_key(k) for k in BEC)} '
-            f'&mdash; and its direction: red raises concern, green lowers it, grey could not be '
-            f'assessed. <b>The gates decide the verdict; this table only publishes the tick-list '
-            f'they already produce.</b> Strengths are ordinal labels for how far the cascade lets '
-            f'a criterion move a verdict. <b>They are not likelihood ratios</b>, nothing here has '
-            f'been calibrated against an outcome, and BEC codes must not be combined using any '
-            f'other scheme\'s rules. A criterion whose gate could not run is marked '
-            f'<span class="unmet">&#9675;</span> and is never read as a clear.</p>'
-            f'<table class="ev"><tr><th>Strength</th><th>Criterion</th><th>Measured</th>'
-            f'<th class="num">Gate</th></tr>{rows}</table>{verdict}</div>')
+    return (f'<div class="xpan"><h4>Criteria ledger <span class="src">BEC v1 &middot; gates '
+            f'decide, this list reports</span></h4>'
+            f'<div class="lgrid">{rows}</div>{verdict}</div>')
 
 
 def host_rank_cell(t, g):
@@ -470,56 +462,80 @@ def classes_html(d, t):
     esc = escalating_rows(t, d['genes'])
     if not esc:
         return ''
-    TH, rows = triage.TH, ''
+    TH, rows, short = triage.TH, [], []
     for cls, hits in esc:
         conf = [g for g in hits if g['verdict'] == 'CONFIRM']
         badge = ('<span class="tag hit">DETECTED</span>' if conf else
                  '<span class="tag none">NONE</span>')
         if not hits:
-            rows += (f'<tr><td class="unmet">{E(cls)}</td><td>{badge}</td>'
-                     f'<td class="acc unmet" colspan="5">no acquired gene of this class detected</td></tr>')
+            rows.append(f'<tr><td class="unmet">{E(cls)}</td><td>{badge}</td>'
+                        f'<td class="acc unmet" colspan="5">no acquired gene of this class detected</td></tr>')
+            short.append(f'<tr><td class="unmet">{E(cls)}</td><td class="unmet" colspan="2">none detected</td></tr>')
             continue
-        for k, g in enumerate(hits):
+        for g in hits:
             call = 'full length' if g['breadth'] >= TH[FULL_LENGTH] else 'partial'
-            rows += (f'<tr><td class="met">{E(cls) if k == 0 else ""}</td>'
-                     f'<td>{badge if k == 0 else ""}</td>'
-                     f'<td class="acc">{E(g["group"])} ({E(g["allele"])})</td>'
-                     f'<td class="num">{g["breadth"]:.1f}%</td><td class="num">{g["depth"]:.2f}x</td>'
-                     f'<td>{chip(g["verdict"])} <span class="tiny">{call}</span></td>'
-                     f'{host_rank_cell(t, g)}</tr>')
-    return (f'<div class="ev"><h4>1 &middot; Which resistance classes would raise this organism, '
-            f'and is this organism the likely carrier</h4>'
-            f'<p class="tiny">The classes are fixed per organism in <code>clinical_watchlist.'
-            f'escalating_classes</code> &mdash; decided before the run, not chosen after seeing '
-            f'the data. <b>MEGARes carries no organism column</b>, so every gene below is '
-            f'co-detected <i>in the swab</i> and attributed to nothing. A class with no gene is as '
-            f'informative as one with: it is the agent still on the table.</p>'
-            f'<p class="tiny"><b>Host rank</b> is the attribution column, and it is load-bearing. '
-            f'It ranks this organism against every other genus in this swab that '
-            f'<code>amr_host_hints</code> documents as a carrier of that gene, by read count. '
-            f'<b>Rank 1 on a CONFIRM gene is what promotes the swab verdict</b> at gate 8; a low '
-            f'rank is the reason the same gene reads as commensal carriage instead. It is also '
-            f'criterion {bec_badge("MR2")} in the ledger below. A rank is evidence about '
-            f'<i>attribution</i>, never proof of it &mdash; nothing short of read-level linkage '
-            f'or an isolate can settle which organism carries the gene.</p>'
-            f'<table class="ev wide"><tr><th>Class</th><th>Status</th><th>Gene co-detected</th>'
-            f'<th class="num">Breadth</th><th class="num">Depth</th><th>Gene verdict</th>'
-            f'<th>Host rank in this swab</th></tr>'
-            f'{rows}</table></div>')
+            rows.append(f'<tr><td class="met">{E(cls)}</td><td>{badge}</td>'
+                        f'<td class="acc">{E(g["group"])} ({E(g["allele"])})</td>'
+                        f'<td class="num">{g["breadth"]:.1f}%</td><td class="num">{g["depth"]:.2f}x</td>'
+                        f'<td>{chip(g["verdict"])} <span class="tiny">{call}</span></td>'
+                        f'{host_rank_cell(t, g)}</tr>')
+            short.append(f'<tr><td class="met">{E(cls)}</td><td><span class="acc">{E(g["group"])}</span> '
+                         f'{g["breadth"]:.0f}% / {g["depth"]:.1f}&times; {chip(g["verdict"])}</td>'
+                         f'{host_rank_cell(t, g)}</tr>')
+    n_hit = sum(1 for _, hits in esc if any(g['verdict'] == 'CONFIRM' for g in hits))
+    head = ('<tr><th>Class</th><th>Status</th><th>Gene co-detected</th>'
+            '<th class="num">Breadth</th><th class="num">Depth</th><th>Gene verdict</th>'
+            '<th>Host rank in this swab</th></tr>')
+    # Three rows in view, in a three-column form that fits a third of the width (classes are
+    # ordered by the rule file, hits by depth); the full seven-column table sits behind a toggle.
+    tbl = (f'<table class="ev short"><tr><th>Class</th><th>Gene</th><th>Host rank</th></tr>'
+           f'{"".join(short[:3])}</table>'
+           f'<details class="fold"><summary>Full table &mdash; {len(esc)} classes, {len(rows)} row'
+           f'{"s" if len(rows) != 1 else ""}</summary><table class="ev wide">{head}{"".join(rows)}'
+           f'</table></details>')
+    return (f'<div class="xpan"><h4>Co-detected resistance <span class="src">{n_hit} of '
+            f'{len(esc)} escalating classes</span></h4><p class="dots">{class_dots(d, t)}</p>{tbl}'
+            f'<p class="tiny">Classes fixed per organism before the run. MEGARes has no organism '
+            f'column: each gene is co-detected in the swab, attributed to nothing. Host rank 1 on a '
+            f'CONFIRM gene {bec_badge("MR2")} promotes the swab verdict at gate 8; a lower rank '
+            f'reads as commensal carriage. Rank is evidence about attribution, never proof.</p></div>')
+
+
+def vf_rows_html(t):
+    """Every distinct VFDB factor for this species, behind a toggle. Nothing is dropped."""
+    if not t['vf']:
+        return ''
+    rows = ''.join(
+        f'<tr><td><b>{E(r.get("Virulence Factor"))}</b></td>'
+        f'<td>{E(r.get("Pathogen"))}'
+        + (f' <span class="tiny">+{r["_strains"]-1} more strain'
+           f'{"s" if r["_strains"] > 2 else ""}</span>' if r['_strains'] > 1 else '')
+        + f'</td><td class="acc">{E(r.get("VF Protein"))}</td>'
+        f'<td class="num">{E(r.get("Coverage(%)"))}</td>'
+        f'<td class="num">{E(r.get("Depth"))}x</td></tr>' for r in t['vf'])
+    red = ''
+    if t['vf_rows'] > len(t['vf']):
+        red = (f' {t["vf_rows"]} raw rows collapse to {len(t["vf"])} factors: VFDB stores one '
+               f'protein per strain, so one gene recruits reads onto every strain\'s copy; the '
+               f'best-covered representative is shown.')
+    return (f'<details class="fold"><summary>All {len(t["vf"])} VFDB factors '
+            f'<span class="src">virulence.DNA</span></summary>'
+            f'<p class="tiny">Reference match on the protein\'s source strain, not read-level '
+            f'linkage to this sample\'s organism. Search the accession in the PFI report.{red}</p>'
+            f'<table class="ev"><tr><th>Factor</th><th>Reference strain</th><th>VFDB accession</th>'
+            f'<th class="num">Coverage</th><th class="num">Depth</th></tr>{rows}</table></details>')
 
 
 def vf_html(t):
     core = core_vf(t)
     if core is None:
         n = len(t['vf'])
-        return (f'<div class="ev"><h4>2 &middot; Virulence factors present</h4>'
-                f'<p class="tiny"><b>{n} distinct factor{"s" if n != 1 else ""} detected, and no '
-                f'core-determinant set is curated for this organism</b> &mdash; so this report will '
-                f'not tell you whether they make it virulent. Depth measures how much was '
-                f'sequenced, not how much a gene matters, and ranking 121 factors by depth invites '
-                f'exactly the wrong inference. The factors are listed in full on the evidence card '
-                f'below. Curating <code>vf_core</code> for this organism is what turns that list '
-                f'into an answer.</p></div>') if t['vf'] else ''
+        return (f'<div class="xpan"><h4>Virulence <span class="src">{n} factor'
+                f'{"s" if n != 1 else ""}</span></h4>'
+                f'<p class="tiny">{n} distinct factor{"s" if n != 1 else ""} detected, and no '
+                f'core-determinant set is curated for this organism, so this report does not say '
+                f'whether they make it virulent. Depth measures sequencing, not importance.</p>'
+                f'{vf_rows_html(t)}</div>') if t['vf'] else ''
     floor = triage.TH['gene_breadth_floor']
     cov = lambda r: float(str(r.get('Coverage(%)', '0')).rstrip('%') or 0)
     solid = [x for x in core if x[2] is not None and cov(x[2]) >= floor]
@@ -535,23 +551,16 @@ def vf_html(t):
     rows = ''.join(
         f'<tr><td class="acc {"met" if (b is not None and cov(b) >= floor) else "unmet"}">{E(m)}</td>'
         f'<td>{E(role)}</td>{cell(b)}</tr>' for m, role, b in core)
-    rest = len(t['vf']) - len(solid) - len(trace)
-    return (f'<div class="ev"><h4>2 &middot; Virulence factors present &mdash; and whether they '
-            f'matter</h4>'
+    return (f'<div class="xpan"><h4>Virulence <span class="src">{len(t["vf"])} factors</span></h4>'
             f'<p class="tiny"><b>{len(solid)} of {len(core)} core determinants above the breadth '
-            f'floor</b>'
-            + (f', {len(trace)} more at trace level' if trace else '') + f'. '
-            f'<b>VFDB rows carry no verdict and this pipeline defines no VFDB threshold</b>, so the '
-            f'{floor:.0f}% split above is borrowed from the AMR fragment floor and is a reporting '
-            f'convention, not a validated call. Read the coverage column, not the badge. '
-            f'Attribution is VFDB\'s own: the read matched a protein whose reference genome is '
-            f'that strain &mdash; a reference match, <b>not read-level linkage to this sample\'s '
-            f'organism</b>. Nothing here changes a verdict; no gate consults '
-            f'<code>vf_core</code>.</p>'
+            f'floor</b>' + (f', {len(trace)} at trace level' if trace else '') + '.</p>'
+            f'<details class="fold"><summary>Core determinants ({len(core)})</summary>'
             f'<table class="ev wide"><tr><th>Core determinant</th><th>Role</th><th>Status</th>'
             f'<th class="num">Coverage</th><th class="num">Depth</th></tr>{rows}</table>'
-            f'<p class="tiny">+ {rest} other VFDB factor{"s" if rest != 1 else ""} for this species, '
-            f'listed in full on the evidence card below.</p></div>')
+            f'<p class="tiny">VFDB rows carry no verdict and this pipeline defines no VFDB '
+            f'threshold: the {floor:.0f}% split is borrowed from the AMR fragment floor, a '
+            f'reporting convention. No gate consults <code>vf_core</code>.</p></details>'
+            f'{vf_rows_html(t)}</div>')
 
 
 # ---------------------------------------------------------------- visual summary
@@ -696,34 +705,164 @@ def class_dots(d, t):
             f'<span class="cn">{n} of {len(esc)}</span>')
 
 
-def flagged_row(d, t, band, also=()):
-    """One disclosure row: the summary is the ranking, the body is the three evidence blocks."""
-    lg = ledger(d, t)
-    sub = (E(t.get('watch_priority')) if t.get('tier') == 'W'
-           else f'CDC Category {E(t["tier"])}' if (t.get('tier') or '-') != '-' else '')
+def first_sentence(why):
+    """The engine's `why` is a semicolon-joined chain of clauses; the first one is the headline."""
+    s = str(why or '')
+    for sep in ('; ', '. '):
+        if sep in s:
+            s = s.split(sep, 1)[0]
+    return s.rstrip('.;') + ('.' if s else '')
+
+
+def deepest_class(d, t):
+    """The escalating class with the deepest CONFIRM gene, else the deepest acquired CONFIRM gene
+    whose documented host range includes this genus. (name, depth) or None."""
+    best = None
+    for cls, hits in (escalating_rows(t, d['genes']) or []):
+        for g in hits:
+            if g['verdict'] == 'CONFIRM' and (best is None or g['depth'] > best[1]):
+                best = (cls, g['depth'])
+    if best is None:
+        for x in (t.get('amr_context') or []):
+            if x.get('verdict') == 'CONFIRM' and x.get('class') == 'acquired':
+                cls = x.get('drug_class') or x['group']
+                if best is None or x['depth'] > best[1]:
+                    best = (cls, x['depth'])
+    return best
+
+
+def _priority(t):
+    tier = t.get('tier') or '-'
+    if tier == 'W':
+        return E(t.get('watch_priority') or 'clinical watchlist')
+    return f'CDC Cat. {E(tier)}' if tier != '-' else 'community'
+
+
+def taxon_detail(d, t):
+    """The expansion under a taxon row. Three panels side by side, one sentence of the engine's
+    reasoning, and everything the old evidence card carried behind toggles. Nothing is dropped."""
+    why = t.get('why') or ''
+    head = first_sentence(why)
+    full = ''
+    if len(head) < len(why.strip()):
+        full = (f'<details class="fold"><summary>Full reasoning</summary>'
+                f'<p class="why">{E(why)}</p></details>')
+    extra = ''
+    if t.get('watch_note'):
+        extra += (f'<details class="fold"><summary>Why it is on the clinical watchlist</summary>'
+                  f'<p class="tiny">{E(t["watch_note"])} Not a CDC bioterrorism agent, so its '
+                  f'ceiling is CONFIRM; ESCALATE stays reserved for a threat-list agent with its '
+                  f'confirmatory marker.</p></details>')
+    if t.get('markers_required'):
+        found = [x for x in (t.get('markers_found') or []) if x not in (t.get('supporting_found') or [])]
+        extra += (f'<details class="fold"><summary>Confirmatory markers (two-way)</summary><p class="tiny">'
+                  f'Required: <b>{E(" / ".join(t["markers_required"]))}</b>. '
+                  + (f'Found: <b>{E(", ".join(found))}</b>, which raises the verdict to ESCALATE.'
+                     if found else 'None detected, so the agent is downgraded. This is the gate '
+                     'that separates a threat-list organism from the threat itself.')
+                  + '</p></details>')
+    if t.get('supporting_required'):
+        sup = t.get('supporting_found') or []
+        extra += (f'<details class="fold"><summary>Supporting markers (one-way)</summary><p class="tiny">'
+                  f'Searched: <b>{E(" / ".join(t["supporting_required"]))}</b>, restricted to VFDB '
+                  f'rows whose reference strain is a <i>{E(t["taxon"].split(" ")[0])}</i>. '
+                  + (f'Found: <b>{E(", ".join(sup))}</b>, which raises the verdict to ESCALATE.'
+                     if sup else '<b>None found, and that is not an exclusion.</b> VFDB coverage for '
+                     'this agent cannot be certified from the report, so a miss is no information, '
+                     'not a clear. The verdict is unchanged by this gate.')
+                  + '</p></details>')
+    if t.get('amr_context'):
+        def hosts(x):
+            out = []
+            for n, c in x['candidates']:
+                if n == t['taxon']:
+                    rank = (f' &mdash; rank {x["self_rank"]} of {x["n_hosts"]}'
+                            if x.get('self_rank') else '')
+                    out.append(f'<span class="self">{E(n)} {c:,}{rank}</span>')
+                else:
+                    out.append(f'<span>{E(n)} {c:,}</span>')
+            return ' &middot; '.join(out) or '&mdash;'
+        rows = ''.join(
+            f'<tr><td><b>{E(x["group"])}</b></td><td class="acc">{E(x["allele"])}</td>'
+            f'<td class="num">{x["breadth"]:.2f}%</td><td class="num">{x["depth"]:.2f}x</td>'
+            f'<td>{chip(x["verdict"])}</td><td class="basis">{hosts(x)}</td>'
+            f'<td class="basis">{E(x["basis"])}</td></tr>'
+            for x in t['amr_context'][:SHOW_HOSTS])
+        n_more = max(0, len(t['amr_context']) - SHOW_HOSTS)
+        more = f'<p class="tiny">+ {n_more} more in the resistance-genes section.</p>' if n_more else ''
+        extra += (f'<details class="fold inferred"><summary>{icon("NOT_TESTED")} '
+                  f'{min(len(t["amr_context"]), SHOW_HOSTS)} resistance genes whose known host '
+                  f'range includes this genus &mdash; INFERRED, NOT MEASURED</summary>'
+                  f'<p class="tiny"><b>MEGARes carries no organism column.</b> These genes were '
+                  f'detected in this sample and this genus is a documented host for them; nothing '
+                  f'shows the gene is in <i>this</i> organism, and no field in the PFI report can. '
+                  f'Culture with AST is the only way to close this. <b>Do not report these as this '
+                  f'organism\'s resistance profile.</b> Candidate hosts are every documented host '
+                  f'of the gene present in this sample, most abundant first, with '
+                  f'<span class="self">this taxon highlighted</span>.</p>'
+                  f'<table class="ev wide"><tr><th>Group</th><th>Allele</th><th>Breadth</th>'
+                  f'<th>Depth</th><th>Gene verdict</th><th>Candidate hosts present (reads)</th>'
+                  f'<th>Why this genus is a candidate</th></tr>{rows}</table>{more}</details>')
+    meta = []
+    if t.get('est'):
+        meta.append(f'{t["est"]:,} Bracken estimate')
+    if t.get('unique') is not None:
+        meta.append(f'{t["unique"]:.0%} unique')
+    if t.get('taxid'):
+        meta.append(f'taxid {E(t["taxid"])}')
+    return (f'<p class="xwhy"><b>Why:</b> {E(head)}'
+            + (f' <span class="tiny">{" &middot; ".join(meta)}</span>' if meta else '') + '</p>'
+            f'<div class="xp">{ledger_html(d, t)}{classes_html(d, t)}{vf_html(t)}</div>'
+            f'{full}{extra}')
+
+
+def taxon_row(d, t, band='', also=(), show_sample=False, with_id=True):
+    """One organism: a <tbody> holding the summary row and its hidden expansion, so sorting moves
+    them together and a deep link can open the pair."""
+    v = t['verdict']
+    sub = _priority(t)
     if also:
         sub += f' &middot; also in {E(", ".join(sorted(also)))}'
-    abund = f'{t["real"]:,} rd' + (f' &middot; {E(t["abundance"])}' if t.get('abundance') else '')
-    body = (classes_html(d, t) + vf_html(t) + ledger_html(d, t) +
-            f'<p class="tiny"><a class="deep" href="#{anchor(d, t)}" '
-            f'onclick="openCard(\'{E(d["id"])}\')">Full evidence card for '
-            f'<i>{E(t["taxon"])}</i> in {E(d["sample"])} &mdash; every VFDB row, every candidate '
-            f'host, the reproduce-offline command &rarr;</a></p>')
-    return (f'<details class="fl {band}"><summary>'
-            f'<span class="fv">{chip(t["verdict"])}</span>'
-            f'<span class="fn"><i>{E(t["taxon"])}</i>'
-            + (f'<span class="fsub">{sub}</span>' if sub else '') + '</span>'
-            f'<span class="fc"><span class="fl-l">Sample</span>'
-            f'<span class="fl-v">{E(d["sample"])}</span></span>'
-            f'<span class="fc"><span class="fl-l">Abundance</span>'
-            f'<span class="fl-v">{abund}</span></span>'
-            f'<span class="fc"><span class="fl-l">Escalating classes</span>'
-            f'<span class="fl-v">{class_dots(d, t)}</span></span>'
-            f'<span class="fc"><span class="fl-l">Criteria</span>'
-            f'<span class="fl-v">{bec_badge(*strongest(lg)) if strongest(lg) else "&mdash;"}'
-            f' <span class="tiny">of {sum(1 for c in lg if c["state"] == "met")} fired</span></span></span>'
-            f'<span class="ftri">&#9654;</span></summary>'
-            f'<div class="flbody">{body}</div></details>')
+    fold = t.get('fold')
+    fv = ('&mdash;' if fold is None else 'only here' if fold == float('inf') else f'{fold:.1f}&times;')
+    fnum = '' if fold is None else ('1e9' if fold == float('inf') else f'{fold:.3f}')
+    gr = t.get('genus_ratio')
+    ab = float(str(t.get('abundance') or '0').rstrip('%') or 0)
+    dc = deepest_class(d, t)
+    rid = f' id="{anchor(d, t)}"' if with_id else ''
+    return (f'<tbody class="org {band}"{rid}>'
+            f'<tr class="xr"><td><button type="button" class="xb" aria-expanded="false" '
+            f'onclick="toggleRow(this)" aria-label="Show evidence for {E(t["taxon"])}">'
+            f'<span class="ftri" aria-hidden="true">&#9654;</span></button></td>'
+            f'<td class="org-n"><i>{E(t["taxon"])}</i><span class="fsub">{sub}</span></td>'
+            f'<td data-v="{ORDER.index(v) if v in ORDER else 9}">{chip(v)}</td>'
+            + (f'<td class="smp">{E(d["sample"])}</td>' if show_sample else '')
+            + f'<td class="num" data-v="{t.get("real") or 0}">{(t.get("real") or 0):,}</td>'
+            f'<td class="num" data-v="{ab}">{E(t.get("abundance") or "&mdash;")}</td>'
+            f'<td class="num" data-v="{fnum}">{fv}</td>'
+            f'<td class="num" data-v="{gr if gr is not None else ""}">'
+            f'{f"{gr:.1f}&times;" if gr is not None else "&mdash;"}</td>'
+            f'<td class="cks-c">{checklist(d, t, compact=True)}</td>'
+            f'<td data-v="{dc[1] if dc else ""}">'
+            + (f'{E(dc[0])} <span class="tiny">{dc[1]:.1f}&times;</span>' if dc else '&mdash;')
+            + '</td></tr>'
+            f'<tr class="xd" hidden><td colspan="{10 if show_sample else 9}">'
+            f'{taxon_detail(d, t)}</td></tr></tbody>')
+
+
+def species_table(bodies, show_sample=False, caption=''):
+    """Sortable table shell. Every <th> is a button; aria-sort tracks the live column."""
+    cols = [('', ''), ('Organism', 'txt'), ('Verdict', 'num')] + \
+           ([('Sample', 'txt')] if show_sample else []) + \
+           [('Reads', 'num'), ('Abundance', 'num'), ('Fold', 'num'),
+            ('Genus ratio', 'num'), ('Criteria met', ''), ('Deepest class', 'num')]
+    ths = ''.join(
+        (f'<th scope="col" aria-sort="none"><button type="button" onclick="sortBy(this.parentNode)">'
+         f'{lbl}</button></th>') if lbl else '<th scope="col"><span class="vh">Expand</span></th>'
+        for lbl, _k in cols)
+    return (f'<div class="tw"><table class="sp">'
+            + (f'<caption class="vh">{caption}</caption>' if caption else '')
+            + f'<thead><tr>{ths}</tr></thead>{"".join(bodies)}</table></div>')
 
 
 def flagged_section(data):
@@ -756,38 +895,25 @@ def flagged_section(data):
                 extra.setdefault(k, []).append(d['sample'])
         return [(d, t, extra.get(binomial(t['taxon']), [])) for d, t in best.values()]
 
-    def band(title, hint, pairs, cls, cap=None):
-        if not pairs:
-            return ''
-        pairs = dedupe(pairs)
-        shown = pairs if cap is None else pairs[:cap]
-        rows = ''.join(flagged_row(d, t, cls, also) for d, t, also in shown)
-        more = ''
-        if cap is not None and len(pairs) > cap:
-            rest = ' &middot; '.join(
-                f'<i>{E(t["taxon"])}</i> <b>{t["real"]:,}</b>' for d, t, _ in pairs[cap:])
-            more = (f'<div class="flrest">+ {len(pairs) - cap} more organism'
-                    f'{"s" if len(pairs) - cap != 1 else ""}, all below every escalation '
-                    f'criterion &mdash; peak reads across the batch: {rest}</div>')
-        return (f'<div class="flband"><div class="flhead"><h3>{title} <span class="ct">'
-                f'{len(pairs)}</span></h3><span class="flhint">{hint}</span></div>{rows}{more}</div>')
-
     # Distinct agents, not rows: the same 25 RNA agents are screened in every sample, so
     # summing rows reports 125 for a five-swab batch and overstates the gap fivefold.
     n_absent = len({binomial(t['taxon']) for d in data for t in d['taxa']
                     if t['verdict'] == 'NOT_TESTED' and not t.get('real')})
-    body = (
-        band('Flagged &mdash; needs an analyst',
-             'CONFIRM or above, ranked by verdict then read count', hot, 'hot') or
-        '<div class="flband"><div class="flhead"><h3>Flagged &mdash; needs an analyst '
-        '<span class="ct">0</span></h3></div><div class="flrest">No taxon reached CONFIRM in this '
-        'batch. That is not a clean result on its own &mdash; read the coverage line above it.'
-        '</div></div>') + \
-        band('Present, but the answer is unavailable',
-             'detected above the read floor &middot; the marker gate could not run',
-             unpowered, 'nt', cap=6) + \
-        band('Watchlist organisms detected, no action',
-             'on a list, below every escalation criterion', watch, 'mon', cap=4)
+    multi = len(data) > 1
+    bands = [('hot', dedupe(hot)), ('nt', dedupe(unpowered)), ('mon', dedupe(watch))]
+    bodies = [taxon_row(d, t, cls, also, show_sample=multi, with_id=False)
+              for cls, pairs in bands for d, t, also in pairs]
+    if bodies:
+        table = species_table(bodies, show_sample=multi,
+                              caption='Flagged species, worst first; sortable by any column')
+    else:
+        table = ('<div class="flrest">No taxon reached CONFIRM in this batch. That is not a clean '
+                 'result on its own &mdash; read the coverage line above it.</div>')
+    legend = ''.join(
+        f'<span class="bk {cls}"><b>{n}</b> {lbl}</span>' for cls, lbl, n in [
+            ('hot', 'flagged, needs an analyst (CONFIRM or above)', len(bands[0][1])),
+            ('nt', 'present, marker gate could not run', len(bands[1][1])),
+            ('mon', 'watchlist, below every escalation criterion', len(bands[2][1]))])
 
     tot = sum(len(d['taxa']) for d in data)
     return (f'<section class="flagged"><div class="flwrap">'
@@ -795,7 +921,8 @@ def flagged_section(data):
             f'<span class="tiny">{len(data)} sample{"s" if len(data) != 1 else ""} &middot; '
             f'{tot:,} taxon rows &middot; {n_absent} agent{"s" if n_absent != 1 else ""} the assay '
             f'could not see</span></div>'
-            f'{coverage_fig(data)}{tier_bars(data)}{body}</div></section>')
+            f'{coverage_fig(data)}{tier_bars(data)}'
+            f'<div class="bkey">{legend}</div>{table}</div></section>')
 
 
 def collect(samples, comparators=None, cohort=None, cohort_name=None, control=None):
@@ -922,270 +1049,163 @@ def qc_tab(d):
             f'</table></div></div>')
 
 
-def taxon_card(d, t):
-    v = t['verdict']
-    meta = [f'<span class="m"><b>{t["real"]:,}</b> real reads</span>']
-    if t.get('est'):
-        meta.append(f'<span class="m">{t["est"]:,} Bracken estimate</span>')
-    if t.get('abundance'):
-        meta.append(f'<span class="m">{E(t["abundance"])} abundance</span>')
-    if t.get('unique') is not None:
-        meta.append(f'<span class="m">{t["unique"]:.0%} unique</span>')
-    if t.get('taxid'):
-        meta.append(f'<span class="m">taxid {E(t["taxid"])}</span>')
-    if t.get('tier') == 'W':
-        meta.append(f'<span class="m tier">{E(t.get("watch_priority", "clinical watchlist"))}</span>')
-    elif t.get('tier') and t['tier'] != '-':
-        meta.append(f'<span class="m tier">CDC Category {E(t["tier"])}</span>')
-
-    vf = ''
-    if t['vf']:
-        rows = ''.join(
-            f'<tr><td><b>{E(r.get("Virulence Factor"))}</b></td>'
-            f'<td>{E(r.get("Pathogen"))}'
-            + (f' <span class="tiny">+{r["_strains"]-1} more strain'
-               f'{"s" if r["_strains"] > 2 else ""}</span>' if r['_strains'] > 1 else '')
-            + f'</td><td class="acc">{E(r.get("VF Protein"))}</td>'
-            f'<td class="num">{E(r.get("Coverage(%)"))}</td>'
-            f'<td class="num">{E(r.get("Depth"))}x</td></tr>' for r in t['vf'][:25])
-        more = (f'<p class="tiny">Showing the 25 best-covered of {len(t["vf"])} factors. The rest '
-                f'are in the PFI report\'s virulence table.</p>' if len(t['vf']) > 25 else '')
-        red = ''
-        if t['vf_rows'] > len(t['vf']):
-            red = (f' <b>{t["vf_rows"]} raw VFDB rows collapse to {len(t["vf"])} distinct factors</b> '
-                   f'&mdash; VFDB stores one reference protein per strain, so a single conserved gene '
-                   f'recruits reads onto every strain\'s copy. Counting rows would overstate this '
-                   f'evidence by {t["vf_rows"]/len(t["vf"]):.1f}x. Best-covered representative shown '
-                   f'per factor, same collapsing rule as the MEG_ alleles.')
-        vf = (f'<div class="ev"><h4>Virulence evidence attributed to this species '
-              f'<span class="src">VFDB &mdash; virulence.DNA</span></h4>'
-              f'<p class="tiny">Attribution is VFDB\'s own: the read matched a protein whose '
-              f'reference genome is that strain. It is a reference match, <b>not read-level linkage '
-              f'to this sample\'s organism</b>. Search the accession in the PFI report to verify.'
-              f'{red}</p>'
-              f'<table class="ev"><tr><th>Factor</th><th>Reference strain</th><th>VFDB accession</th>'
-              f'<th>Coverage</th><th>Depth</th></tr>{rows}</table>{more}</div>')
-
-    hints = ''
-    if t.get('amr_context'):
-        def hosts(x):
-            """Every documented host of this gene that is actually in the sample, most abundant
-            first. This is the column that lets a reader judge attribution: a gene sitting in a
-            sample where a congener outnumbers this taxon 38x is weak evidence for this taxon."""
-            out = []
-            for n, c in x['candidates']:
-                if n == t['taxon']:
-                    rank = (f' &mdash; rank {x["self_rank"]} of {x["n_hosts"]}'
-                            if x.get('self_rank') else '')
-                    out.append(f'<span class="self">{E(n)} {c:,}{rank}</span>')
-                else:
-                    out.append(f'<span>{E(n)} {c:,}</span>')
-            return ' &middot; '.join(out) or '&mdash;'
-
-        rows = ''.join(
-            f'<tr><td><b>{E(x["group"])}</b></td><td class="acc">{E(x["allele"])}</td>'
-            f'<td class="num">{x["breadth"]:.2f}%</td><td class="num">{x["depth"]:.2f}x</td>'
-            f'<td>{chip(x["verdict"])}</td><td class="basis">{hosts(x)}</td>'
-            f'<td class="basis">{E(x["basis"])}</td></tr>'
-            for x in t['amr_context'][:SHOW_HOSTS])
-        n_more = max(0, len(t['amr_context']) - SHOW_HOSTS)
-        more = f'<p class="tiny">+ {n_more} more in the AMR tab.</p>' if n_more else ''
-        hints = (f'<div class="ev inferred"><h4>{icon("NOT_TESTED")} Resistance genes whose known host '
-                 f'range includes this genus &mdash; INFERRED, NOT MEASURED</h4>'
-                 f'<p class="tiny"><b>MEGARes carries no organism column.</b> These genes were '
-                 f'detected in this sample and this genus is a documented host for them &mdash; that '
-                 f'is all. Nothing here shows the gene is in <i>this</i> organism. Nothing in the '
-                 f'PFI report can show it either: the resistance table has no organism column and '
-                 f'the species table has no gene column, so no field joins them. Assembly from raw '
-                 f'reads is the analysis that could settle it, and it is outside what this report '
-                 f'sees. Culture with AST is the only way to close this. '
-                 f'<b>Do not report these as this organism\'s '
-                 f'resistance profile.</b> The <i>candidate hosts present</i> column lists every '
-                 f'documented host of that gene found in this sample, most abundant first, with '
-                 f'<span class="self">this taxon highlighted</span>. Where a congener outnumbers '
-                 f'this organism, the gene is more likely that congener\'s &mdash; which is an '
-                 f'argument, not a measurement.</p>'
-                 f'<table class="ev wide"><tr><th>Group</th><th>Allele</th><th>Breadth</th>'
-                 f'<th>Depth</th><th>Gene verdict</th><th>Candidate hosts present (reads)</th>'
-                 f'<th>Why this genus is a candidate</th></tr>{rows}</table>{more}</div>')
-
-    wn = ''
-    if t.get('watch_note'):
-        wn = (f'<div class="ev"><h4>Why this organism is on the clinical watchlist</h4>'
-              f'<p class="tiny">{E(t["watch_note"])} It is <b>not</b> a CDC bioterrorism agent, so '
-              f'its ceiling is CONFIRM &mdash; ESCALATE stays reserved for a threat-list agent with '
-              f'its confirmatory marker.</p></div>')
-
-    mk = ''
-    if t.get('markers_required'):
-        found = [x for x in (t.get('markers_found') or []) if x not in (t.get('supporting_found') or [])]
-        mk = (f'<div class="ev"><h4>Confirmatory markers &mdash; two-way</h4><p class="tiny">'
-              f'Required: <b>{E(" / ".join(t["markers_required"]))}</b>. '
-              + (f'Found: <b>{E(", ".join(found))}</b> &mdash; this is what raises the verdict to '
-                 f'ESCALATE.' if found else 'None detected, so the agent is downgraded. This is the '
-                 'gate that separates a threat-list organism from the threat itself.')
-              + '</p></div>')
-    if t.get('supporting_required'):
-        sup = t.get('supporting_found') or []
-        mk += (f'<div class="ev"><h4>Supporting markers &mdash; one-way</h4><p class="tiny">'
-               f'Searched: <b>{E(" / ".join(t["supporting_required"]))}</b>, restricted to VFDB rows '
-               f'whose reference strain is a <i>{E(t["taxon"].split(" ")[0])}</i>. '
-               + (f'Found: <b>{E(", ".join(sup))}</b> &mdash; this raises the verdict to ESCALATE.'
-                  if sup else '<b>None found, and that is not an exclusion.</b> VFDB coverage for '
-                  'this agent cannot be certified from the report, so a miss is treated as no '
-                  'information rather than as a clear. The verdict is unchanged by this gate.')
-               + '</p></div>')
-
-    return (f'<div class="card {v}" id="{anchor(d, t)}"><div class="hd">{chip(v)}'
-            f'<span class="tx">{E(t["taxon"])}</span></div>'
-            f'<div class="meta">{"".join(meta)}</div>'
-            f'<p class="why"><b>Why:</b> {E(t["why"])}</p>{wn}{mk}{vf}{hints}</div>')
-
-
 def species_tab(d):
-    banded, seen = [], 0
-    for v in ORDER:
-        grp = [t for t in d['taxa'] if t['verdict'] == v]
-        if not grp:
-            continue
-        threat = [t for t in grp if t['tier'] != '-']
-        other = [t for t in grp if t['tier'] == '-']
-        col, blurb = VERDICT[v]
-        body = ''.join(taxon_card(d, t) for t in threat)
-        if other:
-            body += (f'<details class="fold"><summary>{len(other)} non-threat taxa at this tier '
-                     f'&mdash; community context, expand to read</summary>'
-                     + ''.join(taxon_card(d, t) for t in other) + '</details>')
-        seen += len(grp)
-        banded.append(f'<div class="band"><h3 style="border-left-color:{col}">{icon(v)} {v.replace("_"," ")} '
-                      f'<span class="ct">{len(grp)}</span></h3>'
-                      f'<p class="blurb">{E(blurb)}</p>{body}</div>')
+    """Every taxon row, restructured: one sortable table for the flaggable species (anything on a
+    list), the community-context taxa in one collapsed table, and the absent agents as a line.
+    Nothing the old cards carried is gone; it sits under each row's expansion."""
+    listed = [t for t in d['taxa'] if (t.get('tier') or '-') != '-'
+              and not (t['verdict'] == 'NOT_TESTED' and not t.get('real'))]
+    other = [t for t in d['taxa'] if (t.get('tier') or '-') == '-']
+    absent = [t for t in d['taxa'] if t['verdict'] == 'NOT_TESTED' and not t.get('real')]
+    rank = {'ESCALATE': 0, 'CONFIRM': 1, 'NOT_TESTED': 2, 'MONITOR': 3, 'NO_ACTION': 4}
+    listed.sort(key=lambda t: (rank.get(t['verdict'], 9), -(t.get('real') or 0)))
+    other.sort(key=lambda t: (rank.get(t['verdict'], 9), -(t.get('real') or 0)))
+    band = lambda t: {'ESCALATE': 'hot', 'CONFIRM': 'hot', 'NOT_TESTED': 'nt',
+                      'MONITOR': 'mon'}.get(t['verdict'], '')
+    counts = collections.Counter(t['verdict'] for t in listed)
+    head = ' &middot; '.join(f'{chip(v)} {counts[v]}' for v in ORDER + ['NOT_TESTED'] if counts[v])
 
-    # NOT_TESTED carries TWO distinct reasons and they need different renderings. Both mean "the
-    # test did not run", which is why they share the tier - but one agent is absent from the sample
-    # entirely (RNA genome, nothing to show) and the other is PRESENT and often abundant, with its
-    # own evidence, and only its marker test failed. Collapsing the second into a bare name list
-    # would hide S. aureus at 3,654 reads behind a blurb about RNA viruses.
-    nt = [t for t in d['taxa'] if t['verdict'] == 'NOT_TESTED']
-    absent = [t for t in nt if not t.get('real')]
-    unpowered = [t for t in nt if t.get('real')]
-    if unpowered:
-        cards = ''.join(taxon_card(d, t) for t in unpowered)
-        banded.append(
-            f'<div class="band nt"><h3 style="border-left-color:{C["grey"]}">'
-            f'{icon("NOT_TESTED")} NOT TESTED &mdash; marker not assessable at this coverage '
-            f'<span class="ct">{len(unpowered)}</span></h3>'
-            f'<p class="blurb"><b>Present, and the confirmatory-marker test had too little power to '
-            f'mean anything.</b> These organisms ARE in the sample. Their threat-list status turns on '
-            f'a toxin or virulence marker, and at this sequencing depth the chance of a read landing '
-            f'on that marker was below {int(triage.TH["marker_power_min"] * 100)}%, so its absence is '
-            f'the expected outcome either way and carries no information. Finding the marker would '
-            f'still escalate; missing it changes nothing. <b>Do not read these as cleared</b> &mdash; '
-            f'targeted PCR or culture is what answers the question.</p>{cards}</div>')
+    out = (f'<h3>Flaggable species <span class="ct">{len(listed)}</span>'
+           f'<span class="src">on the CDC threat list or the clinical watchlist</span></h3>'
+           f'<p class="blurb">{head or "none detected"}. Sort any column; expand a row for the '
+           f'criteria ledger, co-detected resistance and virulence evidence.</p>')
+    out += (species_table([taxon_row(d, t, band(t)) for t in listed],
+                          caption='Flaggable species in this swab') if listed
+            else '<p class="blurb">No listed organism was detected above the read floor.</p>')
+
+    if other:
+        oc = collections.Counter(t['verdict'] for t in other)
+        oh = ' &middot; '.join(f'{oc[v]} {v.replace("_", " ")}' for v in ORDER if oc[v])
+        out += (f'<details class="fold big"><summary>Community context &mdash; {len(other)} taxa '
+                f'on no list ({oh}). Never contribute to the sample verdict.</summary>'
+                + species_table([taxon_row(d, t) for t in other],
+                                caption='Community-context taxa') + '</details>')
+
     if absent:
-        rows = ''.join(f'<li><b>{E(t["taxon"])}</b> &mdash; CDC Category {E(t["tier"])}</li>'
-                       for t in absent)
-        banded.append(f'<div class="band nt"><h3 style="border-left-color:{C["grey"]}">'
-                      f'{icon("NOT_TESTED")} NOT TESTED &mdash; assay cannot see this agent '
-                      f'<span class="ct">{len(absent)}</span></h3>'
-                      f'<p class="blurb"><b>Not a severity, and not a negative result.</b> These are '
-                      f'threat-list agents with RNA genomes screened against a DNA-only library. The '
-                      f'test did not run. They are listed below the ladder so they can never be read '
-                      f'as "absent".</p><ul class="plain cols">{rows}</ul></div>')
-    return ''.join(banded) or '<p class="blurb">No taxon reached a reportable verdict.</p>'
+        names = ''.join(f'<li><i>{E(t["taxon"])}</i> <span class="tiny">CDC Category '
+                        f'{E(t["tier"])}</span></li>' for t in absent)
+        out += (f'<div class="band nt"><p class="blurb"><b>{icon("NOT_TESTED")} {len(absent)} '
+                f'listed agent{"s" if len(absent) != 1 else ""} the assay cannot see:</b> RNA '
+                f'genomes screened against a DNA library. The test did not run; not a negative '
+                f'result, and never read as absent.</p>'
+                f'<details class="fold"><summary>Names</summary><ul class="plain cols">{names}'
+                f'</ul></details></div>')
+    if listed and any(t['verdict'] == 'NOT_TESTED' for t in listed):
+        out += (f'<p class="tiny">NOT TESTED with reads present: the organism is in the sample, '
+                f'but at this depth the chance of a read landing on its confirmatory marker was '
+                f'below {int(triage.TH["marker_power_min"] * 100)}%, so the marker\'s absence '
+                f'carries no information. Targeted PCR or culture answers it.</p>')
+    return out
 
 
 def amr_tab(d):
     shown = [x for x in d['genes'] if x['verdict'] != 'NO_ACTION']
     supp = len(d['genes']) - len(shown)
     unann = sum(1 for x in d['genes'] if x['class'] == 'unannotated')
-    bands = []
-    for v in ORDER:
-        grp = [x for x in shown if x['verdict'] == v]
-        if not grp:
-            continue
-        rows = ''.join(
-            f'<tr><td>{chip(x["verdict"])}</td><td><b>{E(x["group"])}</b></td>'
-            f'<td class="acc">{E(x["allele"])}</td><td class="num">{x["breadth"]:.2f}%</td>'
-            f'<td class="num">{x["depth"]:.2f}x</td><td class="num">{x["alleles_collapsed"]}</td>'
-            f'<td>{E(x["class"])}</td><td>{E(x["why"])}</td><td class="basis">{E(x["note"])}</td></tr>'
-            for x in grp)
-        bands.append(f'<h3 style="border-left-color:{VERDICT[v][0]}">{icon(v)} {v.replace("_"," ")} '
-                     f'<span class="ct">{len(grp)}</span></h3>'
-                     f'<table class="ev wide"><tr><th>Verdict</th><th>Group</th><th>Allele</th>'
-                     f'<th>Breadth</th><th>Depth</th><th>Alleles</th><th>Class</th><th>Why</th>'
-                     f'<th>What the gene is</th></tr>{rows}</table>')
-    return (f'<div class="warn"><b>No gene on this page is attributed to an organism.</b> The '
-            f'MEGARes table has no organism column, and assembly could not close the gap '
-            f'(docs/biothreat_assessment.md &sect;2.5). <b>CONFIRM here means "ask a laboratory '
-            f'about this gene", not "the sample is resistant".</b> On a certified-clean ZymoBIOMICS '
-            f'standard this same logic produces nine false-positive CONFIRM calls, because genes '
-            f'like <i>aac(6\')-Ii</i> and <i>fosA</i> are chromosomal in one organism and acquired '
-            f'in another. Do not read the CONFIRM count as a resistance burden.</div>'
-            f'<p class="blurb">Alleles are collapsed to one call per MEGARes group: one real gene '
-            f'recruits reads onto several near-identical accessions, so the representative call is '
-            f'the allele highest on both breadth and depth. {supp} groups were suppressed as '
-            f'conserved rRNA, ubiquitous efflux, point-mutation-dependent, intrinsic, environmental '
-            f'or orphan regulators. Rule coverage: {len(d["genes"]) - unann}/{len(d["genes"])} '
-            f'groups annotated.</p>' + ''.join(bands))
+    shown.sort(key=lambda x: (ORDER.index(x['verdict']) if x['verdict'] in ORDER else 9,
+                              -x['depth']))
+    classes = collections.Counter(x.get('drug_class') or 'unclassified' for x in shown)
+    rows = ''.join(
+        f'<tr data-c="{E(x.get("drug_class") or "unclassified")}">'
+        f'<td data-v="{ORDER.index(x["verdict"]) if x["verdict"] in ORDER else 9}">{chip(x["verdict"])}</td>'
+        f'<td><b>{E(x["group"])}</b> <span class="acc">{E(x["allele"])}</span></td>'
+        f'<td>{E(x.get("drug_class") or "unclassified")}</td>'
+        f'<td class="num" data-v="{x["breadth"]:.3f}">{x["breadth"]:.1f}%</td>'
+        f'<td class="num" data-v="{x["depth"]:.3f}">{x["depth"]:.2f}&times;</td>'
+        f'<td class="num" data-v="{x["alleles_collapsed"]}">{x["alleles_collapsed"]}</td>'
+        f'<td>{E(x["class"])}</td>'
+        f'<td class="basis"><details class="fold"><summary>Why</summary>{E(x["why"])}'
+        + (f'<p class="tiny">{E(x["note"])}</p>' if x.get('note') else '') + '</details></td></tr>'
+        for x in shown)
+    ths = ''.join(
+        f'<th scope="col" aria-sort="none"><button type="button" onclick="sortBy(this.parentNode)">'
+        f'{lbl}</button></th>' for lbl in ['Verdict', 'Gene', 'Drug class', 'Breadth', 'Depth',
+                                            'Alleles', 'Kind']) + '<th scope="col">Reasoning</th>'
+    filt = (f'<button type="button" aria-pressed="true" onclick="amrFilter(this,\'\')">All '
+            f'<span class="ct">{len(shown)}</span></button>'
+            + ''.join(f'<button type="button" aria-pressed="false" onclick="amrFilter(this,\'{E(c)}\')">'
+                      f'{E(c)} <span class="ct">{n}</span></button>'
+                      for c, n in sorted(classes.items(), key=lambda kv: (-kv[1], kv[0]))))
+    return (f'<div class="warn"><b>No gene on this page is attributed to an organism.</b> MEGARes '
+            f'has no organism column and assembly could not close the gap. <b>CONFIRM means "ask a '
+            f'laboratory about this gene", not "the sample is resistant"</b>; on a certified-clean '
+            f'ZymoBIOMICS standard the same logic yields nine false-positive CONFIRM calls.</div>'
+            f'<p class="blurb">{len(shown)} gene groups at MONITOR or above, one call per MEGARes '
+            f'group (the allele highest on breadth and depth). {supp} groups suppressed as rRNA, '
+            f'efflux, point-mutation, intrinsic, environmental or orphan regulators. Rules cover '
+            f'{len(d["genes"]) - unann}/{len(d["genes"])} groups.</p>'
+            f'<div class="amrw"><div class="fltr" role="group" aria-label="Filter by drug class">'
+            f'{filt}</div><div class="tw sticky"><table class="sp amr">'
+            f'<caption class="vh">Resistance genes at MONITOR or above</caption>'
+            f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table></div></div>')
 
 
 def method_tab(d, cmd, fp):
-    return f'''<div class="grid2"><div>
-<h3>Reproduce this page offline</h3>
-<p class="blurb">Everything below was produced from <code>{E(d["sample"])}_en.html</code> alone, by
-the command shown. No network, no database, no aligner &mdash; Python 3 standard library only.</p>
+    enr = ('' if d['comparators'] else
+           '<li><b>Whether a finding is site-specific.</b> The cross-sample enrichment gate is inert '
+           'on this run: ' + ('there is only one sample' if d['n_samples'] == 1 else
+           'the samples were declared independent, so a fold-change between them would measure who '
+           'they came from, not where') + '.</li>')
+    sec = lambda title, line, body: (f'<details class="ms"><summary><b>{title}</b>'
+                                     f'<span class="tiny">{line}</span></summary>{body}</details>')
+    return sec('Reproduce this page offline', 'one command, stdlib Python, no network', f'''
 <pre>cd {E(ROOT)}
 {E(cmd)}</pre>
+<p class="blurb">Produced from <code>{E(d["sample"])}_en.html</code> alone. No network, no database,
+no aligner.</p>
 <table class="kv">
 <tr><th>Engine</th><td>analysis/triage.py</td></tr>
 <tr><th>Rules</th><td>analysis/triage_rules.json</td></tr>
 <tr><th>Rules fingerprint</th><td class="acc">{E(fp.rules)}</td></tr>
 <tr><th>Build fingerprint</th><td class="acc">{E(fp.build)} <span class="tiny">rules + engine</span></td></tr>
 <tr><th>Also written</th><td>analysis/triage_{E(d["id"])}.tsv</td></tr>
-</table>
-<h3>Verify a row against the PFI report</h3>
+</table>''') + sec('Verify a row against the PFI report', 'search the accession, taxid or name', f'''
 <ol class="plain">
 <li>Open <code>{E(d["sample"])}_en.html</code>.</li>
 <li>For a virulence row, search the <b>VFDB accession</b> (e.g. <code>VFG004763</code>) in the
     virulence table.</li>
 <li>For a resistance row, search the <b>MEG_ accession</b> in the drug-resistance table. Expect to
-    find several near-identical alleles &mdash; that is the allele collapsing described above.</li>
+    find several near-identical alleles: that is the allele collapsing described above.</li>
 <li>For a taxon, search the <b>taxid</b> or the scientific name in the identification table.</li>
 </ol>
 <p class="blurb">Every number on this page is copied from those tables unchanged. The one quantity
 computed rather than copied is cross-sample enrichment, which is arithmetic on read counts that are
-themselves in the reports; the card says so in its <i>Why</i> line.</p>
-</div><div>
-<h3>How to read the sample verdict</h3>
-<p class="blurb">The banner at the top of every tab. One answer for the whole sample, rolled up from
-the rows &mdash; a different question, and a different set of words, from the row tiers below.</p>
+themselves in the reports; the row's <i>Why</i> line says so.</p>''') + \
+        sec('How to read the sample verdict', 'ESCALATE, REVIEW, NO ACTION: one answer per swab', f'''
+<p class="blurb">The banner at the top. One answer for the whole sample, rolled up from the rows;
+a different question, and a different set of words, from the row tiers.</p>
 <table class="kv v">{''.join(
     f'<tr><th><span class="chip" style="background:{SAMPLE_VERDICT[v][0]}">{E(v)}</span></th>'
     f'<td>{E(SAMPLE_VERDICT[v][1])}</td></tr>'
-    for v in SV_ORDER)}</table>
-<h3>How to read a row verdict</h3>
-<p class="blurb">On the species and resistance-gene tabs. <b>CONFIRM is the ceiling for any AMR
-gene</b>, and no row is ever labelled REVIEW &mdash; that word belongs to the sample.</p>
+    for v in SV_ORDER)}</table>''') + \
+        sec('How to read a row verdict', 'ESCALATE to NO ACTION, with NOT TESTED outside the ladder', f'''
+<p class="blurb">On the species and resistance-gene sections. <b>CONFIRM is the ceiling for any AMR
+gene</b>, and no row is ever labelled REVIEW; that word belongs to the sample.</p>
 <table class="kv v">{''.join(f'<tr><th>{chip(v)}</th><td>{E(VERDICT[v][1])}</td></tr>'
-                             for v in ['ESCALATE', 'CONFIRM', 'MONITOR', 'NOT_TESTED', 'NO_ACTION'])}</table>
-<h3>What this page cannot tell you</h3>
+                             for v in ['ESCALATE', 'CONFIRM', 'MONITOR', 'NOT_TESTED', 'NO_ACTION'])}</table>''') + \
+        sec('How to read a criteria badge', 'BEC v1: strength by pips, direction by hue, never a score', f'''
+<p class="blurb">Each ledger line is one gate of the cascade, named under <b>BEC v1</b> and given the
+value it measured. The badge carries the criterion's <b>strength</b>:
+{" &middot; ".join(pip_key(k) for k in BEC)}, and its direction: red raises concern, green lowers it,
+grey could not be assessed. <b>The gates decide the verdict; the ledger only publishes the tick-list
+they already produce.</b> Strengths are ordinal labels for how far the cascade lets a criterion move
+a verdict. <b>They are not likelihood ratios</b>, nothing has been calibrated against an outcome, and
+BEC codes must not be combined using any other scheme's rules. A criterion whose gate could not run
+is marked <span class="unmet">&#9675;</span> and is never read as a clear.</p>''') + \
+        sec('What this page cannot tell you', 'viability, gene host, contamination, site-specificity', f'''
 <ul class="plain">
 <li><b>Whether anything is alive.</b> DNA comes off a dry surface from live cells, dead cells and
     spores alike. The PFI "active species" table needs an RNA library and is empty in every DNA run.</li>
-<li><b>Which organism carries a resistance gene.</b> See the banner on the AMR tab.</li>
+<li><b>Which organism carries a resistance gene.</b> See the banner on the resistance-genes section.</li>
 <li><b>Whether a trace call is contamination.</b> No negative extraction control was run, so the
     contamination floor is asserted rather than measured.</li>
-{'<li><b>Whether a finding is site-specific.</b> The cross-sample enrichment gate is inert on this '
- 'run &mdash; ' + ('there is only one sample' if d['n_samples'] == 1 else
- 'the samples were declared independent, so a fold-change between them would measure who they came '
- 'from, not where') + '.</li>' if not d['comparators'] else ''}
-</ul>
-<h3>The input contract &mdash; and what a FASTQ input would add</h3>
+{enr}
+</ul>''') + \
+        sec('The input contract, and what a FASTQ input would add', 'one PFI HTML report in; six listed gaps', '''
 <p class="blurb">This engine reads <b>one PFI HTML report</b> and nothing else. That is deliberate:
 it is the document a microbiologist is actually sent, so every conclusion here can be checked
 against the same page, and the engine runs wherever the report does. The cost is a specific, listed
-set of questions the report cannot answer &mdash; these are limits of the <i>input</i>, not of the
+set of questions the report cannot answer; these are limits of the <i>input</i>, not of the
 rules, and each would be recoverable from the raw reads if the pipeline is ever pointed at them.</p>
 <table class="kv v">
 <tr><th>Molecule count</th><td>The report gives read counts. One fragment amplified 10,000&times;
@@ -1193,31 +1213,30 @@ rules, and each would be recoverable from the raw reads if the pipeline is ever 
     PCR artifact. <i>From FASTQ:</i> the unique-read fraction, already implemented as gate&nbsp;6 and
     active whenever <code>ExtractRead_DNA/</code> is delivered.</td></tr>
 <tr><th>Gene host</th><td>No field joins the resistance table to the species table. <i>From FASTQ:</i>
-    assembly plus read mapping &mdash; which on this batch still failed to resolve it, so this one is
+    assembly plus read mapping, which on this batch still failed to resolve it, so this one is
     not guaranteed even with the reads.</td></tr>
 <tr><th>Unclassified reads</th><td>72&ndash;90% of reads in a surface swab match nothing in the PFI
     database, and the report says nothing about them. Any organism absent from that database is
     invisible to every row on this page. <i>From FASTQ:</i> direct k-mer and GC interrogation of that
     bin.</td></tr>
 <tr><th>Resistance by mutation</th><td>Only gene presence is reported. Resistance conferred by point
-    mutation &mdash; <i>gyrA</i>, <i>rpoB</i>, <i>lpxA</i> &mdash; is invisible, so its absence here is
+    mutation (<i>gyrA</i>, <i>rpoB</i>, <i>lpxA</i>) is invisible, so its absence here is
     never evidence of susceptibility. <i>From FASTQ:</i> variant calling, given sufficient
     depth.</td></tr>
 <tr><th>Genomic context</th><td>Whether a gene sits on a plasmid, a prophage or the chromosome, and
     what travels with it. <i>From FASTQ:</i> assembly and replicon typing.</td></tr>
-<tr><th>Viability and RNA</th><td>Not recoverable from the DNA reads either &mdash; this needs an RNA
+<tr><th>Viability and RNA</th><td>Not recoverable from the DNA reads either; this needs an RNA
     library at the bench. When one exists, the report grows a <code>speciesActivity</code> table and
     the rules gain an activity axis they currently cannot use.</td></tr>
 </table>
 <p class="blurb">These rules are expected to change. They encode what is decidable from today's
 report shape; a new library type, a new database version or more sample data changes what is
-decidable, and the rule file &mdash; not the engine &mdash; is where that change belongs.</p>
-<h3>Measured accuracy</h3>
+decidable, and the rule file, not the engine, is where that change belongs.</p>''') + \
+        sec('Measured accuracy', 'ZymoBIOMICS standard: 10/10 organisms, zero false escalations', '''
 <p class="blurb">Against the ZymoBIOMICS Microbial Community Standard (known composition, five
 inputs): sensitivity 10/10 organisms in every sample, zero false escalations, quantitation mean
 absolute error 1.01 percentage points, and nine false-positive AMR CONFIRM calls that restate the
-host-attribution gap. Full results in <code>docs/zymo_validation.md</code>.</p>
-</div></div>'''
+host-attribution gap. Full results in <code>docs/zymo_validation.md</code>.</p>''')
 
 
 CSS = """
@@ -1436,7 +1455,34 @@ function showTab(s,t){pick('.panel[data-s="'+s+'"] .tabs button','t',t);
    tab. Reveal all three before the browser tries to scroll, or the jump silently lands nowhere. */
 function openCard(s){showSample(s);
   document.querySelectorAll('.panel[data-s="'+s+'"] details.appx').forEach(function(a){a.open=true;});
-  showTab(s,'sp');}
+  showTab(s,'sp');
+  /* the link's hash lands after onclick; expand the target row once it has */
+  setTimeout(function(){var el=location.hash&&document.getElementById(location.hash.slice(1));
+    if(el){expandRow(el);el.scrollIntoView();}},0);}
+function toggleRow(b){var tb=b.closest('tbody');var open=tb.classList.toggle('open');
+  b.setAttribute('aria-expanded',String(open));tb.rows[1].hidden=!open;}
+function expandRow(el){var p=el;while((p=p.parentElement)){if(p.tagName==='DETAILS')p.open=true;}
+  var tb=el.closest('tbody');if(tb&&!tb.classList.contains('open'))toggleRow(tb.querySelector('button.xb'));}
+/* sort by <th>: numeric when the cell carries data-v, text otherwise; tbodies move as units */
+function sortBy(th){var tb=th.closest('table'),i=[].indexOf.call(th.parentNode.children,th);
+  var dir=th.getAttribute('aria-sort')==='ascending'?'descending':'ascending';
+  tb.querySelectorAll('th[aria-sort]').forEach(function(h){h.setAttribute('aria-sort','none');});
+  th.setAttribute('aria-sort',dir);
+  var val=function(g){var c=g.rows[0].cells[i];if(c.dataset.v!==undefined){
+    var n=parseFloat(c.dataset.v);return isNaN(n)?-Infinity:n;}
+    return c.textContent.trim().toLowerCase();};
+  var gs=[].slice.call(tb.tBodies);
+  if(gs.length===1){var rs=[].slice.call(gs[0].rows);
+    rs.sort(function(a,b){var x=a.cells[i],y=b.cells[i];var p=x.dataset.v!==undefined?
+      (parseFloat(x.dataset.v)||0)-(parseFloat(y.dataset.v)||0):
+      x.textContent.trim().toLowerCase().localeCompare(y.textContent.trim().toLowerCase());return p;});
+    if(dir==='descending')rs.reverse();rs.forEach(function(r){gs[0].appendChild(r);});return;}
+  gs.sort(function(a,b){var x=val(a),y=val(b);
+    return typeof x==='number'?x-y:x.localeCompare(y);});
+  if(dir==='descending')gs.reverse();gs.forEach(function(g){tb.appendChild(g);});}
+function amrFilter(b,c){var w=b.closest('.amrw');
+  w.querySelectorAll('.fltr button').forEach(function(x){x.setAttribute('aria-pressed',String(x===b));});
+  w.querySelectorAll('tbody tr').forEach(function(r){r.hidden=!!c&&r.dataset.c!==c;});}
 """
 
 # -- one-page layout (2026-10-26) ---------------------------------------------------------------
@@ -1458,15 +1504,15 @@ CSS += """
 .vstrip{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:14px 26px;
   background:#EDF2F8;border-bottom:1px solid #dbe3ec}
 .vstrip .svchip{font-size:14px;padding:7px 14px}
-.vstrip .vreason{font-size:13px;flex:1;min-width:260px}
+.vstrip .vreason{font-size:13px;flex:1;min-width:min(260px,100%)}
 .flag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.05em;
   padding:3px 8px;border-radius:3px;border:1px solid;margin-left:4px}
 .flag.qc-limited{color:#C02A2A;border-color:#C02A2A;background:#FBEAEA}
 .flag.not-tested{color:#5C5C5C;border-color:#8B8B8B;background:#F2F3F4}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:14px;
   padding:16px 26px 4px}
 .fcard{border:1px solid #dde3ea;border-left:5px solid #6D6D6D;border-radius:7px;padding:12px 14px;
-  background:#fff;display:flex;flex-direction:column;gap:8px}
+  background:#fff;display:flex;flex-direction:column;gap:8px;min-width:0}
 .fcard.ESCALATE{border-left-color:#C02A2A}.fcard.CONFIRM{border-left-color:#AD6400}
 .fcard.MONITOR{border-left-color:#00539B}.fcard.NOT_TESTED{border-left-color:#8B8B8B}
 .fchd{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -1482,12 +1528,12 @@ CSS += """
 .fact{font-size:12.5px;font-weight:600;border-top:1px solid #eef2f6;padding-top:7px}
 .nocard{margin:16px 26px 4px;padding:12px 14px;border:1px solid #dde3ea;border-radius:7px;
   font-size:12.5px;background:#fbfcfd}
-.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px;
+.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr));gap:14px;
   padding:12px 26px 10px}
-.panel-fig{border:1px solid #dde3ea;border-radius:7px;background:#fff;padding:12px 14px}
+.panel-fig{border:1px solid #dde3ea;border-radius:7px;background:#fff;padding:12px 14px;min-width:0}
 .panel-fig b.t{font-size:12.5px;display:block;margin-bottom:2px}
 .panel-fig .tiny{margin:0 0 8px}
-.panel-fig svg{display:block;max-width:100%;height:auto;overflow:visible}
+.panel-fig svg{display:block;width:100%;max-width:520px;height:auto;overflow:visible}
 details.appx{margin:10px 26px 30px;border:1px solid #dde3ea;border-radius:7px;background:#fbfcfd}
 details.appx > summary{cursor:pointer;padding:11px 14px;font-size:13px;font-weight:600;
   color:#00539B;min-height:44px;display:flex;align-items:center}
@@ -1498,6 +1544,110 @@ details.appx main{padding-top:10px}
 .ctrl{font-size:11.5px;color:#333}
 .ctrl.fail{color:#C02A2A;font-weight:700}
 @media print{details.appx{display:none}}
+
+/* -- evidence browser (appendix redesign) ------------------------------------
+   One sortable table per section, one <tbody> per organism (summary row + hidden
+   expansion), a left section nav with counts. Text is 13px minimum in tables;
+   grey ink is #5C5C5C or darker on every light ground (>= 4.5:1). */
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.apgrid{display:grid;grid-template-columns:200px minmax(0,1fr);gap:0 22px;align-items:start}
+.apnav{position:sticky;top:0;display:flex;flex-direction:column;gap:2px;padding:14px 0 14px 14px;
+  border:0}
+.apnav button{text-align:left;border:0;border-left:3px solid transparent;padding:9px 12px;
+  font:600 13px/1.3 inherit;color:#333;background:none;cursor:pointer;border-radius:0 5px 5px 0;
+  display:flex;justify-content:space-between;gap:8px;min-height:44px;align-items:center}
+.apnav button:hover{background:#EDF2F8}
+.apnav button[aria-selected=true]{border-left-color:#00539B;color:#00539B;background:#EDF2F8}
+.apnav button:focus-visible{outline:2px solid #00539B;outline-offset:-2px}
+.apnav .ct{font-weight:700}
+.apgrid > main{padding:14px 18px 40px 0;min-width:0}
+.apgrid .flwrap{padding:0;max-width:none}
+@media (max-width:999px){
+  .apgrid{display:block}
+  .apnav{position:static;flex-direction:row;flex-wrap:wrap;padding:8px 14px;gap:4px;
+    border-bottom:1px solid #e2e8f0}
+  .apnav button{border-left:0;border-bottom:3px solid transparent;border-radius:0;padding:8px 10px}
+  .apnav button[aria-selected=true]{border-bottom-color:#00539B;background:none}
+  .apgrid > main{padding:12px 14px 30px}
+}
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid #dde3ea;border-radius:7px;
+  background:#fff}
+table.sp{font-size:13px;min-width:720px;width:100%}
+table.sp td.org-n{min-width:150px}
+table.sp th{text-align:left;font-weight:600;color:#5C5C5C;font-size:12px;letter-spacing:.02em;
+  border-bottom:2px solid #d6e0ea;padding:0;background:#fff;white-space:nowrap}
+table.sp th button{all:unset;display:block;padding:9px 10px;cursor:pointer;min-height:40px;
+  box-sizing:border-box;width:100%}
+table.sp th button:hover{color:#00539B}
+table.sp th button:focus-visible{outline:2px solid #00539B;outline-offset:-2px}
+table.sp th[aria-sort=ascending] button::after{content:" \\25B4";color:#00539B}
+table.sp th[aria-sort=descending] button::after{content:" \\25BE";color:#00539B}
+table.sp td{padding:7px 8px;border-bottom:1px solid #e8eef4;vertical-align:middle}
+table.sp td.num{white-space:nowrap}
+table.sp tbody.org{border-left:4px solid transparent}
+table.sp tbody.hot{border-left-color:#AD6400}
+table.sp tbody.nt{border-left-color:#8B8B8B}
+table.sp tbody.mon{border-left-color:#00539B}
+table.sp tbody.open > tr.xr > td{background:#f7f9fb;border-bottom-color:#f7f9fb}
+.org-n i{font-weight:600}
+.org-n .fsub{font-size:11.5px;color:#5C5C5C}
+.xb{all:unset;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;
+  width:32px;height:32px;border-radius:4px;color:#5C5C5C}
+.xb:hover{background:#EDF2F8}
+.xb:focus-visible{outline:2px solid #00539B}
+.xb .ftri{transition:transform .15s ease-out;font-size:10px}
+.xb[aria-expanded=true] .ftri{transform:rotate(90deg)}
+@media (prefers-reduced-motion:reduce){.xb .ftri{transition:none}}
+tr.xd > td{background:#fbfcfd;padding:12px 16px 16px;border-bottom:2px solid #d6e0ea}
+.cks-c .cks{display:grid;grid-template-columns:auto auto;gap:2px 12px;white-space:nowrap;
+  width:max-content}
+.cks-c .ck{font-size:12px;min-height:18px;gap:4px}
+.xp{grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr))}
+table.ev.short{table-layout:auto}
+table.ev.short td{font-size:12px}
+table.ev.short td.tiny,table.ev.short .tiny{font-size:11.5px}
+.xwhy{margin:0 0 10px;font-size:13px;max-width:90ch}
+.xp{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;align-items:start}
+.xpan{background:#fff;border:1px solid #dde3ea;border-radius:6px;padding:10px 12px;min-width:0;
+  overflow-x:auto}
+.xpan h4{margin:0 0 8px;font-size:12.5px}
+.xpan .src{margin-left:auto}
+.xpan .dots{margin:0 0 6px}
+.lgrid{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:5px 10px;align-items:start;
+  font-size:12.5px}
+.lgt{line-height:1.4}
+.lgm{display:block;color:#5C5C5C;font-size:12px}
+.lgm .gate{font-size:11px;color:#5C5C5C}
+.xpan .verdictline{margin-top:8px;padding:6px 10px;font-size:12px}
+.xpan table.ev{font-size:12.5px}
+.xpan .tiny,.tiny{color:#5C5C5C;font-size:12px}
+.fold.inferred{border:1px dashed #AD6400;border-radius:5px;padding:0 10px 4px;background:#fbf7ef}
+.fold.big > summary{font-size:13px;padding:10px 0}
+.bkey{display:flex;gap:14px;flex-wrap:wrap;margin:14px 0 8px;font-size:12.5px;color:#333}
+.bk{display:inline-flex;align-items:center;gap:6px;padding-left:10px;border-left:4px solid}
+.bk.hot{border-color:#AD6400}.bk.nt{border-color:#8B8B8B}.bk.mon{border-color:#00539B}
+.fltr{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.fltr button{font:600 12.5px inherit;color:#333;background:#fff;border:1px solid #c8cfd6;
+  border-radius:16px;padding:6px 12px;cursor:pointer;min-height:36px;display:inline-flex;
+  align-items:center;gap:6px}
+.fltr button[aria-pressed=true]{background:#00539B;border-color:#00539B;color:#fff}
+.fltr button[aria-pressed=true] .ct{background:#fff}
+.fltr button:focus-visible{outline:2px solid #00539B;outline-offset:2px}
+.tw.sticky{overflow:visible}
+.tw.sticky th{position:sticky;top:0;z-index:1;box-shadow:0 2px 0 #d6e0ea}
+table.amr .fold{margin:0}
+table.amr .fold summary{padding:2px 0;font-size:12px}
+table.amr td.basis{max-width:360px;font-size:12px;color:#333}
+@media (max-width:999px){.tw.sticky{overflow-x:auto}.tw.sticky th{position:static;box-shadow:none}}
+details.ms{border:1px solid #dde3ea;border-radius:6px;background:#fff;margin:0 0 8px}
+details.ms > summary{cursor:pointer;padding:10px 14px;min-height:44px;display:flex;gap:12px;
+  align-items:baseline;flex-wrap:wrap;font-size:13px}
+details.ms > summary:focus-visible{outline:2px solid #00539B;outline-offset:-2px}
+details.ms > summary .tiny{margin:0}
+details.ms > :not(summary){padding:0 14px}
+details.ms[open] > summary{border-bottom:1px solid #e2e8f0;margin-bottom:8px}
+.band.nt{opacity:1}
+.apgrid h3{margin-top:4px}
 """
 
 ACTION = {
@@ -1530,13 +1680,16 @@ def card_pick(d):
     return cand[:3], max(0, len(cand) - 3)
 
 
-def _box(met, label, value, na=False):
+def _box(met, label, value, na=False, compact=False):
     cls = 'na' if na else ('on' if met else 'off')
     mark = '&ndash;' if na else ('&#10003;' if met else '')
+    if compact:   # table row: box + label; the number lives in the row's own columns
+        return (f'<span class="ck {cls}" title="{label}: {E(value)}"><span class="ckb">{mark}</span>'
+                f'{label}</span>')
     return f'<span class="ck {cls}"><span class="ckb">{mark}</span>{label}<b>{E(value)}</b></span>'
 
 
-def checklist(d, t):
+def checklist(d, t, compact=False):
     """The four criteria as boxes with the measured number beside each. The ledger says the same
     thing in ~1,500 words; this is the version an operations officer reads."""
     why = t.get('why') or ''
@@ -1559,10 +1712,10 @@ def checklist(d, t):
     mv = (', '.join(found) if found else 'not assessable' if 'NOT ASSESSABLE' in why
           else 'absent' if req else 'none defined')
     qc_ok = not any(f == 'QC-LIMITED' for f, _ in d['flags'])
-    return ('<div class="cks">' + _box(enr, 'enriched', fv, na=fold is None)
-            + _box(co, 'acquired gene', gv)
-            + _box(bool(found), 'marker', mv, na=not req and not found)
-            + _box(qc_ok, 'QC ok', 'yes' if qc_ok else 'QC-LIMITED') + '</div>')
+    return ('<div class="cks">' + _box(enr, 'enriched', fv, na=fold is None, compact=compact)
+            + _box(co, 'acquired gene', gv, compact=compact)
+            + _box(bool(found), 'marker', mv, na=not req and not found, compact=compact)
+            + _box(qc_ok, 'QC ok', 'yes' if qc_ok else 'QC-LIMITED', compact=compact) + '</div>')
 
 
 def card(d, t):
@@ -1801,6 +1954,29 @@ def appendix(inner):
             f'resistance gene, the gates that fired, QC and the method</summary>{inner}</details>')
 
 
+def section_counts(d):
+    """What each nav entry counts: listed taxa, genes at MONITOR or above, QC notes."""
+    listed = sum(1 for t in d['taxa'] if (t.get('tier') or '-') != '-'
+                 and not (t['verdict'] == 'NOT_TESTED' and not t.get('real')))
+    return {'fl': listed, 'sp': len(d['taxa']), 'amr': sum(1 for g in d['genes'] if g['verdict'] != 'NO_ACTION'),
+            'qc': len(d['integrity']), 'me': None}
+
+
+def appendix_grid(d, tabs, body, lead=''):
+    """Left section nav (sticky on wide screens, a button row on phones) beside the sections.
+    The nav keeps the `.tabs` class so showTab() drives it unchanged."""
+    n = section_counts(d)
+    nav = ''.join(
+        f'<button data-t="{t}" onclick="showTab(\'{E(d["id"])}\',\'{t}\')" '
+        f'aria-selected="{str(j == 0).lower()}"><span>{lbl}</span>'
+        + (f'<span class="ct">{n[t]}</span>' if n.get(t) is not None else '') + '</button>'
+        for j, (t, lbl) in enumerate(tabs))
+    tp = ''.join(f'<section class="tabp" data-t="{t}"{"" if j == 0 else " hidden"}>{body[t]}</section>'
+                 for j, (t, lbl) in enumerate(tabs))
+    return (f'<div class="apgrid"><nav class="tabs apnav" aria-label="Appendix sections">{nav}'
+            f'</nav><main>{lead}{tp}</main></div>')
+
+
 # ---------------------------------------------------------------- per-sample report
 #
 # One file per swab, `<id>_report.html`, judged against a running registry of every sample
@@ -1880,21 +2056,16 @@ def build_one(sample, reg, meta, fp, outdir=None, cohort_name=None, control=None
     # are not the first thing on the page.
     tabs = [('fl', 'Flagged species'), ('qc', 'QC &amp; depth'), ('sp', 'All taxa'),
             ('amr', 'Resistance genes'), ('me', 'Method &amp; verification')]
-    tb = ''.join(f'<button data-t="{t}" onclick="showTab(\'{E(sid)}\',\'{t}\')" '
-                 f'aria-selected="{str(j == 0).lower()}">{lbl}</button>'
-                 for j, (t, lbl) in enumerate(tabs))
     body = {'fl': flagged_section([d]), 'qc': qc_tab(d), 'sp': species_tab(d),
             'amr': amr_tab(d), 'me': method_tab(d, cmd, fp)}
-    tp = ''.join(f'<section class="tabp" data-t="{t}"{"" if j == 0 else " hidden"}>{body[t]}</section>'
-                 for j, (t, lbl) in enumerate(tabs))
     counts = {v: sum(1 for t in d['taxa'] if t['verdict'] == v) for v in VERDICT}
     head = ' &nbsp;·&nbsp; '.join(f'{chip(v)} {counts[v]}' for v in
                                  ['ESCALATE', 'CONFIRM', 'MONITOR', 'NOT_TESTED'] if counts[v])
     inner = (f'<div class="verdict" style="border-color:{_sv_col(sv)}"><div><b>All reasons for '
              f'{E(sv)}.</b><ul class="plain">{reasons}</ul></div></div>'
-             f'<div class="tabs">{tb}</div><main>'
-             f'<p class="blurb">{d["classified"]:,} classified reads &nbsp;·&nbsp;'
-             f'{head or "no taxon above NO ACTION"}</p>{cohort_block(reg, cids, cfp, meta)}{tp}</main>')
+             + appendix_grid(d, tabs, body, f'<p class="blurb">{d["classified"]:,} classified reads '
+                             f'&nbsp;·&nbsp;{head or "no taxon above NO ACTION"}</p>'
+                             f'{cohort_block(reg, cids, cfp, meta)}'))
 
     doc = f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1988,15 +2159,10 @@ def build(samples, out=OUT, comparators=None, control=None):
 
     panels = []
     for k, d in enumerate(data):
-        tabs = [('qc', 'QC'), ('sp', 'Flaggable species'), ('amr', 'Resistance genes'),
+        tabs = [('sp', 'Flaggable species'), ('qc', 'QC'), ('amr', 'Resistance genes'),
                 ('me', 'Method &amp; verification')]
-        tb = ''.join(f'<button data-t="{t}" onclick="showTab(\'{E(d["id"])}\',\'{t}\')" '
-                     f'aria-selected="{str(j == 0).lower()}">{lbl}</button>'
-                     for j, (t, lbl) in enumerate(tabs))
         body = {'qc': qc_tab(d), 'sp': species_tab(d), 'amr': amr_tab(d),
                 'me': method_tab(d, cmd, fp)}
-        tp = ''.join(f'<section class="tabp" data-t="{t}"{"" if j == 0 else " hidden"}>{body[t]}</section>'
-                     for j, (t, lbl) in enumerate(tabs))
         counts = {v: sum(1 for t in d['taxa'] if t['verdict'] == v) for v in VERDICT}
         head = ' &nbsp;·&nbsp; '.join(f'{chip(v)} {counts[v]}' for v in
                                       ['ESCALATE', 'CONFIRM', 'MONITOR', 'NOT_TESTED'] if counts[v])
@@ -2004,9 +2170,9 @@ def build(samples, out=OUT, comparators=None, control=None):
         reasons = ''.join(f'<li>{E(r)}</li>' for r in sv_why[:5])
         banner = (f'<div class="verdict" style="border-color:{_sv_col(sv)}">'
                   f'<div><b>All reasons for {E(sv)}.</b><ul class="plain">{reasons}</ul></div></div>')
-        inner = (f'{banner}<div class="tabs">{tb}</div><main>'
-                 f'<p class="blurb">{d["classified"]:,} classified reads &nbsp;·&nbsp; '
-                 f'{head or "no taxon above NO ACTION"}</p>{tp}</main>')
+        inner = banner + appendix_grid(d, tabs, body, f'<p class="blurb">{d["classified"]:,} '
+                                       f'classified reads &nbsp;·&nbsp; '
+                                       f'{head or "no taxon above NO ACTION"}</p>')
         panels.append(f'<div class="panel" data-s="{E(d["id"])}"{"" if k == 0 else " hidden"}>'
                       f'{page_top(d, data, meta, reg)}{appendix(inner)}</div>')
 
